@@ -16,8 +16,8 @@ from downloader import (
     delete_lesson, is_link_expired, lesson_expiry, load_history, save_history,
 )
 from qtui import anim
-from qtui.theme import C, I, PAD_LG, PAD_MD, PAD_SM, PAD_XL, PAD_XXL
-from qtui.widgets import ConfirmDialog, Toast, card, hbox, label, vbox
+from qtui.theme import I, PAD_LG, PAD_MD, PAD_SM
+from qtui.widgets import ConfirmDialog, Toast, hbox, label, restyle, vbox
 
 SORTS = ["Najnowsze najpierw", "Najstarsze najpierw", "Nazwa: A-Z", "Nazwa: Z-A"]
 
@@ -49,17 +49,16 @@ class LessonCard(QFrame):
         # górny wiersz: numer + temat
         top = QWidget(self)
         tl = hbox(top, s=PAD_MD)
-        num = label(f"#{lesson.get('number', '?')}", "SectionTitle")
-        num.setStyleSheet(f"color: {C.PRIMARY};")
+        num = label(f"#{lesson.get('number', '?')}", "LessonNumber")
         num.setFixedWidth(52)
         tl.addWidget(num)
 
         topic = lesson.get("topic", "")
         empty = not topic or topic in ("Bez_tematu", "*Bez Tematu*", "Bez Tematu")
-        tw = label("Bez tematu" if empty else topic, "FieldTitle")
+        tw = label("Bez tematu" if empty else topic,
+                   "NoTopic" if empty else "FieldTitle")
         if empty:
             f = tw.font(); f.setItalic(True); tw.setFont(f)
-            tw.setStyleSheet(f"color: {C.TEXT_MUTED};")
         tl.addWidget(tw, 1)
         lay.addWidget(top)
 
@@ -123,12 +122,13 @@ class LessonCard(QFrame):
         QGuiApplication.clipboard().setText(self._url)
         self._copied = True
         self.url_btn.setText(f"{I.CHECK}  Skopiowano")
-        self.url_btn.setStyleSheet(
-            f"color: {C.SUCCESS}; border-color: {C.SUCCESS};")
+        self.url_btn.setObjectName("UrlChipCopied")
+        restyle(self.url_btn)
 
         def _restore() -> None:
             self._copied = False
-            self.url_btn.setStyleSheet("")
+            self.url_btn.setObjectName("UrlChip")
+            restyle(self.url_btn)
             f = self.url_btn.font(); f.setItalic(False); self.url_btn.setFont(f)
             self.url_btn.setText(self._short)
 
@@ -247,9 +247,8 @@ class HistoryPage(QWidget):
             empty = label(
                 f"{I.LIST}\n\nBrak pobranych lekcji.\n"
                 f"Przejdź do zakładki „Pobierz”.",
-                "Muted", wrap=True)
+                "EmptyState", wrap=True)
             empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            empty.setStyleSheet(f"color: {C.TEXT_MUTED}; padding: {PAD_XXL}px;")
             self.list_layout.insertWidget(0, empty)
             anim.fade_in(empty, ms=anim.SLOW)
             return

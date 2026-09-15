@@ -8,7 +8,7 @@ from PySide6.QtWidgets import QDialog, QPushButton, QWidget
 
 from config import AppConfig
 from qtui import anim
-from qtui.theme import C, I, PAD_LG, PAD_MD, PAD_XL, STYLESHEET
+from qtui.theme import I, PAD_LG, PAD_MD, PAD_XL, stylesheet
 from qtui.settings_page import SettingsForm
 from qtui.widgets import label, vbox
 
@@ -21,7 +21,7 @@ class SetupWizard(QDialog):
         self._config = config
 
         self.setWindowTitle("Mathloader — Konfiguracja")
-        self.setStyleSheet(STYLESHEET)
+        self.setStyleSheet(stylesheet())
         self.setModal(True)
         self.setFixedSize(760, 720)
         # Jak w oknie głównym: bez MSWindowsFixedSizeDialogHint ramka dalej
@@ -36,9 +36,7 @@ class SetupWizard(QDialog):
 
         lay = vbox(self, m=PAD_XL, s=PAD_MD)
 
-        title = label(f"{I.SPARK}  Witaj w Mathloader!", "AppTitle")
-        title.setStyleSheet(f"font-size: 24px; font-weight: 800; color: {C.TEXT};")
-        lay.addWidget(title)
+        lay.addWidget(label(f"{I.SPARK}  Witaj w Mathloader!", "WizardTitle"))
         lay.addWidget(label("Skonfiguruj aplikację przed pierwszym użyciem.",
                             "Hint"))
         lay.addSpacing(PAD_MD)
@@ -46,8 +44,7 @@ class SetupWizard(QDialog):
         self.form = SettingsForm(config, offer_factory_reset=False)
         lay.addWidget(self.form, 1)
 
-        self.error = label("", "Hint", wrap=True)
-        self.error.setStyleSheet(f"color: {C.ERROR};")
+        self.error = label("", "Err", wrap=True)
         lay.addWidget(self.error)
 
         start = QPushButton(f"Zapisz i rozpocznij   {I.ARROW_R}", self)

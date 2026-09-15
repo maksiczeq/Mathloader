@@ -14,7 +14,7 @@ from PySide6.QtCore import (
     QPropertyAnimation, QSequentialAnimationGroup, QTimer, QVariantAnimation, Qt,
 )
 from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QGraphicsOpacityEffect, QWidget
+from PySide6.QtWidgets import QGraphicsOpacityEffect, QLabel, QWidget
 
 # Standardowe czasy — spójne tempo w całej aplikacji.
 FAST = 140
@@ -35,6 +35,22 @@ def _keep(widget: QWidget, anim: QAbstractAnimation, slot: str = "_anim") -> Non
         except RuntimeError:
             pass
     setattr(widget, slot, anim)
+
+
+def stop(widget: QWidget, slot: str = "_anim") -> None:
+    """Zatrzymuje trzymaną animację i zapomina o niej.
+
+    Potrzebne np. przy zmianie motywu: `glow()` po naturalnym zakończeniu
+    przemalowuje widget na kolor, który zapamiętał na starcie — czyli na kolor
+    STAREJ palety. `stop()` nie emituje `finished`, więc to nie nastąpi.
+    """
+    anim = getattr(widget, slot, None)
+    if anim is not None:
+        try:
+            anim.stop()
+        except RuntimeError:
+            pass
+        setattr(widget, slot, None)
 
 
 def _effect(widget: QWidget) -> QGraphicsOpacityEffect:
@@ -273,6 +289,28 @@ def animate_height(window: QWidget, new_h: int, *, new_y: Optional[int] = None,
         anim.finished.connect(on_done)
     _keep(window, anim, "_geo_anim")
     anim.start(QAbstractAnimation.DeletionPolicy.KeepWhenStopped)
+
+
+def cross_fade_theme(window: QWidget, apply: Callable[[], None], *,
+                     ms: int = 320) -> None:
+    """Przemalowuje okno pod migawką i wygasza ją — kolory przechodzą płynnie.
+
+    Dlaczego migawka, a nie animowanie samych wartości kolorów: każda klatka
+    wymagałaby przebudowania arkusza QSS i ponownego zaaplikowania go na
+    aplikacji, a Qt repolishuje wtedy wszystkie widgety naraz. Przy kilkuset
+    kontrolkach przejście by szarpało. Tu jest jedno przemalowanie, a płynność
+    daje zwykłe wygaszenie jednego obrazka.
+    """
+    ghost = QLabel(window)
+    ghost.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+    ghost.setPixmap(window.grab())
+    ghost.setGeometry(window.rect())
+
+    apply()
+
+    ghost.show()
+    ghost.raise_()
+    fade_out(ghost, ms=ms, hide=False, on_done=ghost.deleteLater)
 
 
 def fade_in_window(window: QWidget, *, ms: int = 260) -> None:

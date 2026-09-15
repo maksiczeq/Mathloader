@@ -20,6 +20,8 @@ Interfejs: PySide6 (Qt 6). Strony renderuje dołączona przeglądarka Chromium
 - **Własne formaty nazw** folderów i plików z podglądem na żywo
   (`{nr}`, `{temat}`, `{data}`, `{img}`).
 - **Historia pobrań** z automatyczną numeracją lekcji i wykrywaniem duplikatów.
+- **Ciemny i jasny motyw** — przełącznik w prawym górnym rogu, z płynnym
+  przejściem; wybór zostaje zapamiętany (pierwsze uruchomienie: ciemny).
 - **Powiadomienie o nowej wersji** — systemowe okno Windows przy starcie,
   gdy na GitHubie pojawi się nowsze wydanie.
 

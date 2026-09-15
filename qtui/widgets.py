@@ -49,6 +49,12 @@ def hbox(w: QWidget, m: int = 0, s: int = 0) -> QHBoxLayout:
     return lay
 
 
+def restyle(w: QWidget) -> None:
+    """Wymusza ponowne dopasowanie QSS po zmianie objectName widgetu."""
+    w.style().unpolish(w)
+    w.style().polish(w)
+
+
 class TabBar(QWidget):
     """Segmentowany pasek zakładek (własny — spójny z motywem)."""
 
@@ -225,8 +231,11 @@ class TypeToConfirmDialog(BaseDialog):
 class Toast(QFrame):
     """Krótki komunikat w rogu (np. „Skopiowano")."""
 
-    def __init__(self, parent: QWidget, text: str, color: str = C.SUCCESS):
+    # Kolor domyślny rozwiązujemy w środku: `C.SUCCESS` w sygnaturze zostałby
+    # wyliczony raz, przy imporcie, i nie nadążałby za zmianą motywu.
+    def __init__(self, parent: QWidget, text: str, color: str = ""):
         super().__init__(parent)
+        color = color or C.SUCCESS
         self.setObjectName("ToastBox")
         self.setStyleSheet(
             f"#ToastBox {{ background: {C.BG_CARD}; border: 1px solid {color};"
@@ -239,7 +248,7 @@ class Toast(QFrame):
         self.adjustSize()
 
     @staticmethod
-    def show_at(parent: QWidget, text: str, color: str = C.SUCCESS,
+    def show_at(parent: QWidget, text: str, color: str = "",
                 ms: int = 1400) -> None:
         t = Toast(parent, text, color)
         t.move(parent.width() - t.width() - PAD_XL,

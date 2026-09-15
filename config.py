@@ -31,6 +31,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     # świadomie pominięta („Pomiń tę wersję” w komunikacie).
     "check_updates": True,
     "skip_version": "",
+    # Motyw: pierwsze uruchomienie zawsze ciemne, potem ostatni wybór.
+    "theme": "dark",
 }
 
 # Dostępne placeholdery z opisami
@@ -151,6 +153,18 @@ class AppConfig:
     @check_updates.setter
     def check_updates(self, value: bool) -> None:
         self._data["check_updates"] = bool(value)
+
+    # ── Wygląd ──
+
+    @property
+    def theme(self) -> str:
+        """„dark” albo „light”; przy pierwszym uruchomieniu zawsze ciemny."""
+        value = str(self._data.get("theme", "dark")).lower()
+        return value if value in ("dark", "light") else "dark"
+
+    @theme.setter
+    def theme(self, value: str) -> None:
+        self._data["theme"] = "light" if str(value).lower() == "light" else "dark"
 
     @property
     def skip_version(self) -> str:

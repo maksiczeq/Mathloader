@@ -9,7 +9,7 @@ from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QFrame, QPushButton, QScrollArea, QWidget
 
 from version import APP_VERSION
-from qtui.theme import C, F, I, PAD_LG, PAD_MD, PAD_SM, PAD_XL
+from qtui.theme import F, I, PAD_LG, PAD_MD, PAD_SM, PAD_XL
 from qtui.widgets import card, hbox, hline, label, vbox
 
 _LICENSE_PATH = Path(__file__).resolve().parent.parent / "LICENSE"
@@ -54,9 +54,7 @@ class InfoPage(QWidget):
         L = vbox(holder, m=PAD_XL, s=PAD_MD)
 
         # ── Nagłówek ──
-        title = label(f"{I.SPARK}  Mathloader", "AppTitle")
-        title.setStyleSheet(f"font-size: 20px; font-weight: 800; color: {C.TEXT};")
-        L.addWidget(title)
+        L.addWidget(label(f"{I.SPARK}  Mathloader", "PageTitle"))
         L.addWidget(label("Mathloader — automatyczne pobieranie obrazów lekcji "
                           "matematyki z dynamicznych stron.", "Hint", wrap=True))
 
@@ -66,9 +64,7 @@ class InfoPage(QWidget):
         author_row = QWidget(holder)
         al = hbox(author_row, s=PAD_SM)
         al.addWidget(label("Autor:", "FieldTitle"))
-        who = label("Maksymilian Borowski", "FieldTitle")
-        who.setStyleSheet(f"color: {C.PRIMARY};")
-        al.addWidget(who)
+        al.addWidget(label("Maksymilian Borowski", "Accent"))
         al.addStretch(1)
         L.addWidget(author_row)
 
@@ -98,9 +94,8 @@ class InfoPage(QWidget):
 
         lic_card = card(holder)
         lcl = vbox(lic_card, m=PAD_LG, s=0)
-        lic = label(_license_text(), "", wrap=True)
+        lic = label(_license_text(), "License", wrap=True)
         lic.setFont(QFont(F.MONO, F.SIZE_XS))
-        lic.setStyleSheet(f"color: {C.TEXT_SECONDARY}; background: transparent;")
         lic.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         lcl.addWidget(lic)
         L.addWidget(lic_card)
@@ -110,12 +105,11 @@ class InfoPage(QWidget):
         root.addWidget(scroll, 1)
 
         # ── Podpis na dole ──
-        sign = label("Made with <3 by maksiq")
+        sign = label("Made with <3 by maksiq", "Signature")
         sign.setTextFormat(Qt.TextFormat.PlainText)
         sign.setAlignment(Qt.AlignmentFlag.AlignCenter)
         f = QFont(F.FAMILY, F.SIZE_SM)
         f.setBold(True)
         f.setItalic(True)
         sign.setFont(f)
-        sign.setStyleSheet(f"color: {C.PRIMARY_DARK}; background: transparent;")
         root.addWidget(sign)

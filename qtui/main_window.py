@@ -6,7 +6,7 @@ from typing import Optional
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
-    QFrame, QPushButton, QSizePolicy, QStackedWidget, QWidget,
+    QApplication, QFrame, QPushButton, QSizePolicy, QStackedWidget, QWidget,
 )
 
 from config import AppConfig
@@ -16,7 +16,10 @@ from qtui.download_page import DownloadPage
 from qtui.history_page import HistoryPage
 from qtui.info_page import InfoPage
 from qtui.settings_page import SettingsPage
-from qtui.theme import C, I, PAD_LG, PAD_MD, PAD_SM, PAD_XL, RADIUS, STYLESHEET
+from qtui.theme import (
+    C, I, PAD_LG, PAD_MD, PAD_SM, PAD_XL, RADIUS, is_dark, set_theme,
+    stylesheet, toggle_theme,
+)
 from qtui.updates import UpdateChecker
 from qtui.widgets import TabBar, hbox, label, vbox
 
@@ -35,11 +38,13 @@ class MainWindow(QWidget):
         super().__init__()
         self._config = config
         self._warning_on = False
+        self._banner_color = C.ERROR
         self._problem: Optional[tuple[list[str], str]] = None
 
         self.setObjectName("Root")
         self.setWindowTitle("Mathloader")
-        self.setStyleSheet(STYLESHEET)
+        set_theme(config.theme)              # zapamiętany wybór, domyślnie ciemny
+        self.setStyleSheet(stylesheet())
         # Bez maksymalizacji — rozmiar zmienia wyłącznie sama aplikacja
         # (wysoki podgląd / rozwinięta konsola), patrz `_resize_to`.
         #
@@ -80,10 +85,17 @@ class MainWindow(QWidget):
 
         # ── Nagłówek ──
         head = QWidget(self)
-        hl = hbox(head)
+        hl = hbox(head, s=PAD_MD)
         hl.addWidget(label(f"{I.SPARK}  Mathloader", "AppTitle"))
         hl.addStretch(1)
         hl.addWidget(label(f"v{APP_VERSION}  •  Qt", "AppVersion"))
+
+        self.theme_btn = QPushButton(head)
+        self.theme_btn.setObjectName("ThemeToggle")
+        self.theme_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.theme_btn.clicked.connect(self._toggle_theme)
+        self._sync_theme_button()
+        hl.addWidget(self.theme_btn)
         root.addWidget(head)
 
         # ── Baner ostrzeżenia ──
@@ -139,6 +151,35 @@ class MainWindow(QWidget):
         self.stack.addWidget(self.info_page)
         sl.addWidget(self.stack)
         root.addWidget(shell, 1)
+
+    # ────────────────────────────── motyw
+
+    def _sync_theme_button(self) -> None:
+        """Ikona pokazuje motyw, NA KTÓRY przełączy kliknięcie."""
+        dark = is_dark()
+        self.theme_btn.setText(I.SUN if dark else I.MOON)
+        self.theme_btn.setToolTip(
+            "Przełącz na jasny motyw" if dark else "Przełącz na ciemny motyw")
+
+    def _toggle_theme(self) -> None:
+        def apply() -> None:
+            name = toggle_theme()
+            qss = stylesheet()
+            app = QApplication.instance()
+            if app is not None:
+                app.setStyleSheet(qss)      # obejmuje też dialogi i toasty
+            self.setStyleSheet(qss)
+            self._sync_theme_button()
+            self._config.theme = name
+            self._config.save()
+            # Baner ostrzeżenia ma kolory wstrzykiwane w kodzie — odśwież od razu,
+            # zamiast czekać na najbliższy przebieg walidacji ścieżek. Trwające
+            # „zaświecenie" trzeba wcześniej zatrzymać: kończąc się, przemalowałoby
+            # baner kolorem zapamiętanym przed zmianą motywu.
+            anim.stop(self.banner, "_glow_anim")
+            self._validate_paths()
+
+        anim.cross_fade_theme(self, apply, ms=anim.SLOW)
 
     # ────────────────────────────── zakładki
 
@@ -254,6 +295,7 @@ class MainWindow(QWidget):
     def _show_banner(self, color: str, keyword: str, text: str,
                      fg: str) -> None:
         first = not self._warning_on
+        self._banner_color = color        # odświeżane co przebieg walidacji
         self.banner_kw.setText(keyword)
         self.banner_kw.setStyleSheet(f"color: {fg}; font-weight: 700;")
         self.banner_text.setText(text)
@@ -267,11 +309,14 @@ class MainWindow(QWidget):
         if not first:
             return
         self._warning_on = True
-        # Wysuwa się z góry, po czym „zaświeca" przez ~1 s.
+        # Wysuwa się z góry, po czym „zaświeca" przez ~1 s. Kolor czytamy
+        # dopiero w chwili startu animacji — w międzyczasie mógł zmienić się
+        # motyw i zapamiętana wartość byłaby z poprzedniej palety.
         anim.reveal(self.banner, ms=anim.BASE)
         QTimer.singleShot(
             anim.BASE + 60,
-            lambda: anim.glow(self.banner, color, pulses=2, ms=950))
+            lambda: anim.glow(self.banner, self._banner_color,
+                              pulses=2, ms=950))
 
     def _hide_banner(self) -> None:
         if not self._warning_on:

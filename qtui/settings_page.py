@@ -17,10 +17,10 @@ from downloader import (
 )
 from paths import ensure_data_dir, history_file
 from qtui import anim
-from qtui.theme import C, I, PAD_LG, PAD_MD, PAD_SM, PAD_XL
+from qtui.theme import I, PAD_LG, PAD_MD, PAD_SM, PAD_XL
 from qtui.widgets import (
     CollapsibleSection, Toast, TypeToConfirmDialog, card, hbox, hline, label,
-    vbox,
+    restyle, vbox,
 )
 
 DETAIL_TEXT = (
@@ -400,13 +400,15 @@ class SettingsPage(QWidget):
         errors = self.form.validate()
         if errors:
             self.status.setText(f"{I.WARN}  " + " • ".join(errors))
-            self.status.setStyleSheet(f"color: {C.ERROR};")
+            self.status.setObjectName("Err")
+            restyle(self.status)
             anim.fade_in(self.status, ms=anim.FAST)
             return
         self.form.apply_to_config(self._config)
         self._config.save()
         self.status.setText(f"{I.CHECK}  Zmiany zapisane pomyślnie!")
-        self.status.setStyleSheet(f"color: {C.SUCCESS};")
+        self.status.setObjectName("Ok")
+        restyle(self.status)
         anim.fade_in(self.status, ms=anim.BASE)
         Toast.show_at(self.window(), f"{I.CHECK}  Zapisano ustawienia")
         QTimer.singleShot(3200, lambda: anim.fade_out(

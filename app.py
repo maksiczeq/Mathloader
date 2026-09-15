@@ -32,7 +32,7 @@ from PySide6.QtGui import QFont, QIcon
 from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
 
 from config import AppConfig
-from qtui.theme import F, STYLESHEET
+from qtui.theme import F, set_theme, stylesheet
 
 ICON_PATH = paths.bundle_dir() / "assets" / "mathloader.ico"
 
@@ -74,11 +74,14 @@ def main() -> int:
     app.setApplicationName("Mathloader")
     app.setStyle("Fusion")
     app.setFont(QFont(F.FAMILY, F.SIZE_SM))
-    app.setStyleSheet(STYLESHEET)
     if ICON_PATH.exists():
         app.setWindowIcon(QIcon(str(ICON_PATH)))
 
     config = AppConfig().load()
+    # Motyw musi być wybrany PRZED zbudowaniem arkusza — przy pierwszym
+    # uruchomieniu (brak settings.json) `config.theme` zwraca „dark”.
+    set_theme(config.theme)
+    app.setStyleSheet(stylesheet())
 
     if config.is_first_run():
         from qtui.setup_wizard import SetupWizard

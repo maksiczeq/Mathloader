@@ -88,8 +88,7 @@ class DownloadPage(QWidget):
         rl.addWidget(self.download_btn)
         ucl.addWidget(row)
 
-        self.dup_label = label("", "Hint", wrap=True)
-        self.dup_label.setStyleSheet(f"color: {C.WARNING};")
+        self.dup_label = label("", "Warn", wrap=True)
         self.dup_label.hide()
         ucl.addWidget(self.dup_label)
 
@@ -129,8 +128,7 @@ class DownloadPage(QWidget):
         top = QWidget(self.status_card)
         tl = hbox(top)
         self.status_title = label("", "FieldTitle")
-        self.status_pct = label("", "Hint")
-        self.status_pct.setStyleSheet(f"color: {C.PRIMARY}; font-weight: 700;")
+        self.status_pct = label("", "StatusPct")
         tl.addWidget(self.status_title, 1)
         tl.addWidget(self.status_pct)
         lay.addWidget(top)
@@ -374,7 +372,8 @@ class DownloadPage(QWidget):
             self.download_btn.setText(f"{I.DOWNLOAD}   Pobierz")
             self.download_btn.setObjectName("Primary")
             self._restyle(self.download_btn)
-            self.dup_label.setStyleSheet(f"color: {C.ERROR};")
+            self.dup_label.setObjectName("Err")
+            self._restyle(self.dup_label)
             self.dup_label.setText(
                 f"{I.STOP}  Nieobsługiwany adres. Wklej link do lekcji w formacie:\n"
                 f"{SUPPORTED_URL_HINT}"
@@ -400,7 +399,8 @@ class DownloadPage(QWidget):
         existing = find_existing_lesson(load_history(), url)
         if existing:
             self._awaiting_dup = True
-            self.dup_label.setStyleSheet(f"color: {C.WARNING};")
+            self.dup_label.setObjectName("Warn")
+            self._restyle(self.dup_label)
             self.dup_label.setText(
                 f"{I.WARN}  Ten URL pobrano wcześniej: lekcja #{existing['number']} "
                 f"({existing['topic']}, {existing['downloaded_at']}). "
@@ -584,7 +584,8 @@ class DownloadPage(QWidget):
         self.status_title.setText(f"{I.CHECK}   Pobieranie zakończone")
         self.status_sub.setText("")
         self.status_pct.setText("100%")
-        self.status_pct.setStyleSheet(f"color: {C.SUCCESS}; font-weight: 700;")
+        self.status_pct.setObjectName("StatusPctDone")
+        self._restyle(self.status_pct)
         self.progress.setObjectName("Done")
         self._restyle(self.progress)
 
@@ -642,7 +643,8 @@ class DownloadPage(QWidget):
         anim.pop_in(row, ms=anim.BASE)
 
     def _hide_status(self) -> None:
-        self.status_pct.setStyleSheet(f"color: {C.PRIMARY}; font-weight: 700;")
+        self.status_pct.setObjectName("StatusPct")
+        self._restyle(self.status_pct)
         self.progress.setObjectName("")
         self._restyle(self.progress)
         anim.fade_out(self.status_card, ms=anim.BASE,
