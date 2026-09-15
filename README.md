@@ -88,14 +88,6 @@ docs/                 dokumentacja techniczna
 
 ---
 
-## Dla rozwijających
-
-- **Budowanie instalatora** → [docs/BUILD.md](docs/BUILD.md)
-- **Publikacja na GitHubie i wydawanie aktualizacji** → [docs/PUBLIKACJA.md](docs/PUBLIKACJA.md)
-- **Podbicie wersji** → jedna linia w [version.py](version.py)
-
----
-
 ## Licencja
 
 MIT — [LICENSE](LICENSE). Autor: Maksymilian Borowski.
