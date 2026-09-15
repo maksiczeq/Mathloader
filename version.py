@@ -11,7 +11,7 @@ Podbijając wersję zmieniasz WYŁĄCZNIE `APP_VERSION` tutaj — reszta idzie z
 from __future__ import annotations
 
 APP_NAME = "Mathloader"
-APP_VERSION = "3.0.0"
+APP_VERSION = "3.1.0"
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  Repozytorium GitHub, z którego aplikacja czyta informacje o nowych wersjach.
