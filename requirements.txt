@@ -1,0 +1,7 @@
+# Mathloader — zależności działania aplikacji.
+# Wersja Playwright jest przypięta, bo numer builda przeglądarki
+# (chromium_headless_shell-1234) musi zgadzać się z tym, co pakuje instalator.
+playwright==1.62.0
+Pillow
+requests
+PySide6>=6.10

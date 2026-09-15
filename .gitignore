@@ -1,0 +1,23 @@
+# Artefakty builda
+build/
+dist/
+dist_installer/
+*.spec.bak
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# Pliki robocze narzędzi
+.claude/
+
+# Dane lokalne użytkownika (nie wersjonujemy cudzych ustawień/historii)
+settings.json
+lessons_history.json
+mathloader-error.log
+*.uszkodzony-*.json
+*.json.tmp
+
+# Ikona jest generowana przez tools/make_icon.py
+assets/mathloader.png

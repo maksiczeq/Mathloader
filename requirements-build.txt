@@ -1,0 +1,6 @@
+# Mathloader — narzędzia potrzebne wyłącznie do zbudowania instalatora.
+# Instaluj razem z requirements.txt:
+#   pip install -r requirements.txt -r requirements-build.txt
+#
+# PyInstaller 6.16+ jest pierwszą wersją wspierającą Pythona 3.14.
+pyinstaller>=6.16

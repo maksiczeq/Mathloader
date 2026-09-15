@@ -1,0 +1,121 @@
+===============================================================
+  MATHLOADER 3.0 - wersja testowa (portable)
+  Automatyczne pobieranie obrazow lekcji matematyki
+===============================================================
+
+Nie trzeba instalowac Pythona ani niczego dodatkowego.
+Wszystko jest w paczce. Wymagania: Windows 10/11 64-bit, ~700 MB
+wolnego miejsca.
+
+
+---------------------------------------------------------------
+KROK 1 - ODBLOKUJ PLIK ZIP  (WAZNE! bez tego program sie nie uruchomi)
+---------------------------------------------------------------
+
+Windows oznacza pliki pobrane z internetu i blokuje je.
+
+  1. Kliknij PRAWYM na pobrany Mathloader-3.0.0-portable.zip
+  2. Wybierz "Wlasciwosci"
+  3. Na dole zaznacz "Odblokuj" ("Unblock")
+  4. Kliknij OK
+
+DOPIERO TERAZ rozpakuj archiwum. Jesli rozpakujesz przed
+odblokowaniem, blokada przejdzie na wszystkie pliki w srodku
+i program nie wystartuje.
+
+
+---------------------------------------------------------------
+KROK 2 - ROZPAKUJ I URUCHOM
+---------------------------------------------------------------
+
+Rozpakuj ZIP gdziekolwiek (np. Pulpit albo pendrive), wejdz do
+folderu "Mathloader" i uruchom:
+
+    Mathloader.exe
+
+Nie uruchamiaj programu bezposrednio z wnetrza ZIP-a - najpierw
+go rozpakuj.
+
+
+---------------------------------------------------------------
+KROK 3 - OSTRZEZENIE WINDOWS SMARTSCREEN
+---------------------------------------------------------------
+
+Zobaczysz niebieskie okno "System Windows ochronil Twoj komputer".
+
+To normalne - program nie ma platnego certyfikatu podpisu
+cyfrowego (kosztuje kilkaset zlotych rocznie). Zeby uruchomic:
+
+  1. Kliknij "Wiecej informacji"
+  2. Kliknij "Uruchom mimo to"
+
+Antywirus tez moze zaprotestowac. To typowe dla programow
+spakowanych PyInstallerem - jesli nie ufasz, nie uruchamiaj
+i daj znac.
+
+
+---------------------------------------------------------------
+KROK 4 - PIERWSZE URUCHOMIENIE
+---------------------------------------------------------------
+
+Pokaze sie kreator konfiguracji. Wskaz folder, do ktorego maja
+trafiac pobrane obrazy lekcji (mozesz dodac kilka folderow -
+program zapisze kopie w kazdym z nich).
+
+Potem wklej link do lekcji w formacie:
+
+    http://sw.syrjb.com:8081/view/oss/viewDocument/[...]
+
+i kliknij "Pobierz". Inne adresy sa celowo odrzucane.
+
+
+---------------------------------------------------------------
+CO WARTO SPRAWDZIC
+---------------------------------------------------------------
+
+[ ] Kreator konfiguracji pojawia sie tylko RAZ
+    (zamknij program, uruchom ponownie - nie powinien wrocic)
+[ ] Pobieranie przechodzi przez wszystkie etapy do konca
+[ ] Obrazy faktycznie trafily do wskazanego folderu
+[ ] Zakladka "Historia" pokazuje pobrana lekcje
+[ ] Przycisk "Otworz" w historii otwiera wlasciwy folder
+[ ] Kopiowanie linku z historii dziala
+[ ] Podglad obrazow przewija sie strzalkami
+[ ] Zakladka "Info" pokazuje licencje MIT
+[ ] Animacje sa plynne, nic nie "przeskakuje"
+[ ] Program dziala po odlaczeniu dysku zewnetrznego
+    (powinno pokazac ostrzezenie, nie wysypac sie)
+
+
+---------------------------------------------------------------
+GDZIE PROGRAM TRZYMA SWOJE DANE
+---------------------------------------------------------------
+
+W tej wersji (portable) - w podfolderze "data" obok
+Mathloader.exe. Mozesz przeniesc caly folder na pendrive razem
+z ustawieniami.
+
+Pobrane obrazy lekcji trafiaja tam, gdzie wskazesz w kreatorze -
+NIE do folderu programu.
+
+Zeby usunac program: skasuj caly folder. Nic nie zostaje
+w systemie.
+
+
+---------------------------------------------------------------
+JESLI COS SIE WYSYPIE
+---------------------------------------------------------------
+
+Program zapisuje kazdy blad do pliku:
+
+    data\mathloader-error.log
+
+Przyslij mi ten plik razem z opisem, co robiles. Pomocny bedzie
+tez zrzut ekranu i tresc czarnej konsoli na dole okna programu.
+
+
+---------------------------------------------------------------
+Autor: Maksymilian Borowski
+Licencja: MIT (otwarte oprogramowanie)
+Made with <3 by maksiq
+===============================================================
