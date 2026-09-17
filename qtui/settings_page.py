@@ -17,10 +17,10 @@ from downloader import (
 )
 from paths import ensure_data_dir, history_file
 from qtui import anim
-from qtui.theme import I, PAD_LG, PAD_MD, PAD_SM, PAD_XL
+from qtui.theme import G, I, PAD_LG, PAD_MD, PAD_SM, PAD_XL, PAD_XS
 from qtui.widgets import (
-    CollapsibleSection, Toast, TypeToConfirmDialog, card, hbox, hline, label,
-    restyle, vbox,
+    CollapsibleSection, Toast, TypeToConfirmDialog, card, glyph_label, hbox,
+    hline, label, restyle, set_glyph, vbox,
 )
 
 DETAIL_TEXT = (
@@ -45,35 +45,89 @@ def reveal_in_explorer(path: Path) -> None:
         pass
 
 
-class PathRow(QWidget):
-    """Wiersz: [ścieżka] [...] [✕]."""
+class PathRow(QFrame):
+    """Wiersz ścieżki zapisu.
+
+    Domyślna:      [ścieżka pogrubiona] [📌 Domyślna] [wybierz] [✕ nieaktywne]
+    Pozostałe:     [ścieżka]            [pinezka]     [wybierz] [✕]
+
+    Ścieżka domyślna to ta, w której historia szuka folderu lekcji po kliknięciu
+    „Otwórz". Pinezka przy dowolnym wierszu ustawia go domyślnym jednym
+    kliknięciem — wiersz przeskakuje wtedy na górę listy, bo kolejność ścieżek
+    jest jednocześnie kolejnością zapisu.
+
+    Domyślnej nie da się usunąć: gdyby zniknęła, „Otwórz" nagle sięgałoby po
+    inny nośnik bez żadnej decyzji użytkownika. Najpierw przypinasz inną, potem
+    kasujesz tę niepotrzebną.
+    """
 
     removed = Signal(object)
+    pinned = Signal(object)              # „ustaw jako domyślną"
 
     def __init__(self, value: str = "", parent: Optional[QWidget] = None):
         super().__init__(parent)
-        lay = hbox(self, s=PAD_SM)
+        self.setObjectName("PathRow")
+        self._is_default = False
+        lay = hbox(self, m=PAD_XS, s=PAD_SM)
 
         self.edit = QLineEdit(value, self)
         self.edit.setObjectName(f"PathEdit{id(self)}")
         self.edit.setPlaceholderText(r"np. C:\Users\Nazwa\Lekcje")
         lay.addWidget(self.edit, 1)
 
-        browse = QPushButton("…", self)
-        browse.setObjectName("CardAction")
+        # Ikona osobno od napisu: w mieszanym tekście Qt nie podmieni fontu
+        # i zamiast pinezki wyszedłby pusty prostokąt.
+        self.badge = QWidget(self)
+        bl = hbox(self.badge, s=PAD_XS)
+        bl.addWidget(glyph_label("PIN", obj="BadgeGlyph", parent=self.badge))
+        bl.addWidget(label("Domyślna", "DefaultBadge", parent=self.badge))
+        self.badge.hide()
+        lay.addWidget(self.badge)
+
+        self.pin_btn = QPushButton(G.PIN, self)
+        self.pin_btn.setObjectName("PinBtn")
+        self.pin_btn.setFixedWidth(40)
+        self.pin_btn.setMinimumHeight(38)
+        self.pin_btn.setToolTip("Ustaw jako ścieżkę domyślną")
+        self.pin_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.pin_btn.clicked.connect(lambda: self.pinned.emit(self))
+        lay.addWidget(self.pin_btn)
+
+        browse = QPushButton(G.BROWSE, self)
+        browse.setObjectName("BrowseBtn")
         browse.setFixedWidth(46)
         browse.setMinimumHeight(38)
+        browse.setToolTip("Wybierz folder…")
         browse.setCursor(Qt.CursorShape.PointingHandCursor)
         browse.clicked.connect(self._browse)
         lay.addWidget(browse)
 
-        self.remove_btn = QPushButton(I.CROSS, self)
+        self.remove_btn = QPushButton(G.CLOSE, self)
         self.remove_btn.setObjectName("IconDanger")
         self.remove_btn.setFixedWidth(40)
         self.remove_btn.setMinimumHeight(38)
+        self.remove_btn.setToolTip("Usuń tę ścieżkę")
         self.remove_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.remove_btn.clicked.connect(lambda: self.removed.emit(self))
         lay.addWidget(self.remove_btn)
+
+    @property
+    def is_default(self) -> bool:
+        return self._is_default
+
+    def set_default(self, is_default: bool) -> None:
+        """Podpis zamiast pinezki, pogrubiona ścieżka, zablokowane usuwanie."""
+        self._is_default = is_default
+        self.badge.setVisible(is_default)
+        self.pin_btn.setVisible(not is_default)
+        self.remove_btn.setEnabled(not is_default)
+        self.remove_btn.setToolTip(
+            "Ścieżki domyślnej nie można usunąć — najpierw przypnij inną"
+            if is_default else "Usuń tę ścieżkę")
+        # Pogrubienie idzie przez właściwość, a nie przez `setFont`: nazwa pola
+        # jest już zajęta przez obramowanie błędu, a QSS i tak wygrywa z fontem.
+        self.edit.setProperty("isDefault", is_default)
+        restyle(self.edit)
 
     def _browse(self) -> None:
         folder = QFileDialog.getExistingDirectory(self, "Wybierz folder zapisu")
@@ -166,12 +220,22 @@ class SettingsForm(QScrollArea):
         L = self._lay
 
         L.addWidget(label(f"{I.FOLDER}  Foldery zapisu (kopie)", "SectionTitle"))
-        L.addWidget(label("Każda ścieżka = jedna kopia. "
-                          "Możesz dodać tyle kopii, ile chcesz.", "Hint", wrap=True))
+        L.addWidget(label(
+            "Każda ścieżka = jedna kopia. Pierwsza, oznaczona jako domyślna, "
+            "jest tą, w której historia szuka folderu lekcji po kliknięciu "
+            "„Otwórz” — pinezką ustawisz nią dowolną inną. Trzymaj tam dysk, "
+            "który zawsze jest podłączony.", "Hint", wrap=True))
 
         self.rows_box = QWidget()
-        self.rows_layout = vbox(self.rows_box, s=PAD_SM)
+        self.rows_layout = vbox(self.rows_box, m=PAD_XS, s=PAD_SM)
         L.addWidget(self.rows_box)
+
+        # Kreska oddziela ścieżkę domyślną od pozostałych kopii. Marginesy dają
+        # przerwę, bez której sam włos byłby w tej liście niewidoczny.
+        self._sep = QWidget()
+        sl = vbox(self._sep, m=PAD_SM)
+        sl.addWidget(hline())
+        self._sep.hide()
 
         add = QPushButton(f"{I.PLUS}   Dodaj folder zapisu")
         add.setObjectName("AddPath")
@@ -231,7 +295,7 @@ class SettingsForm(QScrollArea):
         # pliki danych powstają dopiero przy pierwszym zapisie.
         if self._offer_reset:
             AB.addWidget(hline())
-            AB.addWidget(label(f"{I.FOLDER}  Twoje pliki z danymi", "FieldTitle"))
+            AB.addWidget(label(f"{I.DATA}  Twoje pliki z danymi", "FieldTitle"))
             AB.addWidget(label(
                 "Leżą poza folderem programu, więc aktualizacja aplikacji ich "
                 "nie usuwa ani nie nadpisuje. Przycisk „Pokaż” otwiera "
@@ -284,22 +348,58 @@ class SettingsForm(QScrollArea):
     def _add_row(self, value: str = "", *, animate: bool = False) -> None:
         row = PathRow(value)
         row.removed.connect(self._remove_row)
-        self.rows_layout.addWidget(row)
+        row.pinned.connect(self._pin_row)
         self._rows.append(row)
-        self._sync_remove_buttons()
+        self._relayout()
         if animate:
             anim.pop_in(row, ms=anim.BASE)
 
     def _remove_row(self, row: PathRow) -> None:
-        if len(self._rows) <= 1:
+        # Domyślnej nie ruszamy (patrz PathRow), a wiersz w trakcie znikania
+        # zostaje klikalny — bez tej straży drugi klik w „✕" wywracał się na
+        # `list.remove`.
+        if row not in self._rows or row.is_default:
             return
         self._rows.remove(row)
-        anim.slide_up(row, ms=anim.FAST, on_done=row.deleteLater)
-        self._sync_remove_buttons()
+        row.remove_btn.setEnabled(False)
+        # Kolejność pozostałych się nie zmienia, więc układu tu NIE przestawiamy:
+        # inaczej znikający wiersz podskoczyłby na koniec listy w pół animacji.
+        anim.slide_up(row, ms=anim.FAST, on_done=lambda: self._drop_row(row))
+        self._mark_rows()
 
-    def _sync_remove_buttons(self) -> None:
-        for r in self._rows:
-            r.remove_btn.setEnabled(len(self._rows) > 1)
+    def _drop_row(self, row: PathRow) -> None:
+        row.setParent(None)
+        row.deleteLater()
+        self._relayout()
+
+    def _pin_row(self, row: PathRow) -> None:
+        """Jedno kliknięcie pinezki: ta ścieżka staje się domyślna.
+
+        Kolejność ścieżek jest zarazem kolejnością zapisu, więc przypięty wiersz
+        idzie na górę — dzięki temu „domyślna" i „pierwsza" zawsze znaczą to samo.
+        """
+        if row not in self._rows or row.is_default:
+            return
+        self._rows.remove(row)
+        self._rows.insert(0, row)
+        self._relayout()
+        self.ensureWidgetVisible(row)
+
+    def _relayout(self) -> None:
+        """Ustawia kolejność w układzie: domyślna, kreska, reszta kopii."""
+        if not self._rows:
+            return
+        self.rows_layout.insertWidget(0, self._rows[0])
+        self.rows_layout.insertWidget(1, self._sep)
+        for pos, r in enumerate(self._rows[1:], start=2):
+            self.rows_layout.insertWidget(pos, r)
+        self._mark_rows()
+
+    def _mark_rows(self) -> None:
+        """Jedno miejsce prawdy: kto jest domyślny i co widać w wierszu."""
+        for i, r in enumerate(self._rows):
+            r.set_default(i == 0)
+        self._sep.setVisible(len(self._rows) > 1)
 
     def get_paths(self) -> list[str]:
         return [r.path for r in self._rows if r.path]
@@ -388,8 +488,9 @@ class SettingsPage(QWidget):
         self.status = label("", "Hint")
         bl.addWidget(self.status, 1)
 
-        save = QPushButton(f"{I.CHECK}   Zapisz zmiany", bar)
+        save = QPushButton("  Zapisz zmiany", bar)
         save.setObjectName("Primary")
+        set_glyph(save, "CHECK")
         save.setMinimumWidth(190)
         save.setCursor(Qt.CursorShape.PointingHandCursor)
         save.clicked.connect(self._save)
@@ -406,11 +507,11 @@ class SettingsPage(QWidget):
             return
         self.form.apply_to_config(self._config)
         self._config.save()
-        self.status.setText(f"{I.CHECK}  Zmiany zapisane pomyślnie!")
+        self.status.setText(f"{I.OK}  Zmiany zapisane pomyślnie!")
         self.status.setObjectName("Ok")
         restyle(self.status)
         anim.fade_in(self.status, ms=anim.BASE)
-        Toast.show_at(self.window(), f"{I.CHECK}  Zapisano ustawienia")
+        Toast.show_at(self.window(), f"{I.OK}  Zapisano ustawienia")
         QTimer.singleShot(3200, lambda: anim.fade_out(
             self.status, ms=anim.BASE, hide=False,
             on_done=lambda: self.status.setText("")))

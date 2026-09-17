@@ -12,7 +12,7 @@ import subprocess
 from typing import Optional
 
 from PySide6.QtCore import QByteArray, QPropertyAnimation, Qt, QTimer, Signal
-from PySide6.QtGui import QPixmap
+from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit, QProgressBar,
     QPushButton, QSizePolicy, QVBoxLayout, QWidget,
@@ -25,9 +25,9 @@ from downloader import (
 )
 from qtui import anim, workers
 from qtui.theme import (
-    C, I, PAD_LG, PAD_MD, PAD_SM, PAD_XL, RADIUS_SM,
+    C, G, I, PAD_LG, PAD_MD, PAD_SM, PAD_XL, RADIUS_SM,
 )
-from qtui.widgets import card, hbox, label, vbox
+from qtui.widgets import card, hbox, label, set_glyph, vbox
 
 PREVIEW_MIN_H = 220
 PREVIEW_MAX_H = 820
@@ -55,7 +55,12 @@ class DownloadPage(QWidget):
         self._preview_bytes: dict[int, bytes] = {}
         self._preview_idx = 0
         self._console_expanded = False
-        self._hide_timer: Optional[QTimer] = None
+        # Jeden timer na cale zycie strony: kazde pobranie tylko go restartuje.
+        # Tworzenie nowego przy kazdym koncu pobierania zostawialo poprzednie
+        # (wciaz podpiete do _hide_status) jako dzieci widgetu.
+        self._hide_timer = QTimer(self)
+        self._hide_timer.setSingleShot(True)
+        self._hide_timer.timeout.connect(self._hide_status)
         self._job = None            # aktywne zadanie w tle — trzymaj referencję!
         self._img_jobs: dict[int, object] = {}
         self._build()
@@ -80,8 +85,9 @@ class DownloadPage(QWidget):
         self.url_edit.returnPressed.connect(self._on_download)
         rl.addWidget(self.url_edit, 1)
 
-        self.download_btn = QPushButton(f"{I.DOWNLOAD}   Pobierz", row)
+        self.download_btn = QPushButton("  Pobierz", row)
         self.download_btn.setObjectName("Primary")
+        set_glyph(self.download_btn, "DOWNLOAD")
         self.download_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.download_btn.setMinimumWidth(160)
         self.download_btn.clicked.connect(self._on_download)
@@ -173,8 +179,8 @@ class DownloadPage(QWidget):
 
         nav = QWidget(gallery)
         nl = hbox(nav)
-        self.prev_btn = QPushButton(I.ARROW_L, nav)
-        self.prev_btn.setObjectName("CardAction")
+        self.prev_btn = QPushButton(G.CHEVRON_L, nav)
+        self.prev_btn.setObjectName("NavArrow")
         self.prev_btn.setFixedWidth(44)
         self.prev_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.prev_btn.clicked.connect(lambda: self._change_preview(-1))
@@ -182,8 +188,8 @@ class DownloadPage(QWidget):
         self.idx_label = label("1 / 1", "Muted")
         self.idx_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        self.next_btn = QPushButton(I.ARROW_R, nav)
-        self.next_btn.setObjectName("CardAction")
+        self.next_btn = QPushButton(G.CHEVRON_R, nav)
+        self.next_btn.setObjectName("NavArrow")
         self.next_btn.setFixedWidth(44)
         self.next_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.next_btn.clicked.connect(lambda: self._change_preview(1))
@@ -198,7 +204,7 @@ class DownloadPage(QWidget):
         topic = card(content, surface=True)
         topic.setFixedWidth(248)
         tl = vbox(topic, m=PAD_MD, s=PAD_SM)
-        tl.addWidget(label(f"{I.NAME_TAG}  Temat lekcji", "FieldTitle"))
+        tl.addWidget(label(f"{I.TOPIC}  Temat lekcji", "FieldTitle"))
 
         self.topic_edit = QLineEdit(topic)
         self.topic_edit.setPlaceholderText("Wpisz temat lekcji…")
@@ -209,8 +215,9 @@ class DownloadPage(QWidget):
                            "Muted", wrap=True))
         tl.addStretch(1)
 
-        self.confirm_btn = QPushButton(f"{I.CHECK}   Zatwierdź i pobierz", topic)
+        self.confirm_btn = QPushButton("  Zatwierdź i pobierz", topic)
         self.confirm_btn.setObjectName("Success")
+        set_glyph(self.confirm_btn, "CHECK")
         self.confirm_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.confirm_btn.clicked.connect(self._on_confirm)
         tl.addWidget(self.confirm_btn)
@@ -228,7 +235,7 @@ class DownloadPage(QWidget):
     def _build_console(self, root: QVBoxLayout) -> None:
         head = QWidget(self)
         hl = hbox(head)
-        hl.addWidget(label(f"{I.SLIDERS}  Konsola", "Hint"))
+        hl.addWidget(label(f"{I.CONSOLE}  Konsola", "Hint"))
         hl.addStretch(1)
 
         self.console_btn = QPushButton(f"{I.CHEVRON_D}  Rozwiń", head)
@@ -304,14 +311,14 @@ class DownloadPage(QWidget):
         self.download_btn.setEnabled(idle_like and self._download_allowed)
 
         if state == self.IDLE:
-            self.download_btn.setText(f"{I.DOWNLOAD}   Pobierz")
+            self._set_main_button("  Pobierz", "DOWNLOAD")
             anim.fade_out(self.status_card, on_done=self.status_card.hide)
             anim.fade_out(self.review_card, on_done=self.review_card.hide)
             self.dup_label.hide()
             self.request_height.emit(0)
 
         elif state == self.LOADING:
-            self.download_btn.setText("Ładowanie…")
+            self._set_main_button("Ładowanie…")
             self.review_card.hide()
             self.status_title.setText(f"{I.SCAN}   Skanowanie strony z lekcją…")
             self.status_pct.setText("")
@@ -326,12 +333,12 @@ class DownloadPage(QWidget):
             anim.reveal(self.status_card, ms=anim.BASE)
 
         elif state == self.REVIEW:
-            self.download_btn.setText(f"{I.DOWNLOAD}   Pobierz")
+            self._set_main_button("  Pobierz", "DOWNLOAD")
             self.status_card.hide()
             anim.reveal(self.review_card, ms=anim.BASE)
 
         elif state == self.DOWNLOADING:
-            self.download_btn.setText("Pobieranie…")
+            self._set_main_button("Pobieranie…")
             self.review_card.hide()
             self.progress.setRange(0, 1000)
             self.progress.setValue(0)
@@ -341,7 +348,7 @@ class DownloadPage(QWidget):
             anim.reveal(self.status_card, ms=anim.BASE)
 
         elif state == self.DONE:
-            self.download_btn.setText(f"{I.REFRESH}   Nowe pobieranie")
+            self._set_main_button("  Nowe pobieranie", "REFRESH")
             self.request_height.emit(0)
 
     # ────────────────────────────── Phase 1
@@ -350,12 +357,20 @@ class DownloadPage(QWidget):
         if self._awaiting_dup and text.strip() != self._current_url:
             self._awaiting_dup = False
             anim.fade_out(self.dup_label)
-            self.download_btn.setText(f"{I.DOWNLOAD}   Pobierz")
+            self._set_main_button("  Pobierz", "DOWNLOAD")
             self.download_btn.setObjectName("Primary")
             self._restyle(self.download_btn)
         elif not self._awaiting_dup and self.dup_label.isVisible():
             # schowaj komunikat o nieobsługiwanym adresie po edycji
             anim.fade_out(self.dup_label)
+
+    def _set_main_button(self, text: str, glyph: str = "") -> None:
+        """Podpis i ikona głównego przycisku zmieniają się razem ze stanem."""
+        self.download_btn.setText(text)
+        if glyph:
+            set_glyph(self.download_btn, glyph)
+        else:
+            self.download_btn.setIcon(QIcon())
 
     def _restyle(self, w: QWidget) -> None:
         w.style().unpolish(w)
@@ -369,7 +384,7 @@ class DownloadPage(QWidget):
 
         if not is_supported_url(url):
             self._awaiting_dup = False
-            self.download_btn.setText(f"{I.DOWNLOAD}   Pobierz")
+            self._set_main_button("  Pobierz", "DOWNLOAD")
             self.download_btn.setObjectName("Primary")
             self._restyle(self.download_btn)
             self.dup_label.setObjectName("Err")
@@ -407,7 +422,7 @@ class DownloadPage(QWidget):
                 f"Kliknij „Kontynuuj”, aby pobrać ponownie."
             )
             anim.fade_in(self.dup_label, ms=anim.BASE)
-            self.download_btn.setText(f"{I.REFRESH}   Kontynuuj")
+            self._set_main_button("  Kontynuuj", "REFRESH")
             self.log("Wykryto pobraną wcześniej lekcję. "
                      "Oczekuję na potwierdzenie kontynuacji.")
             return
@@ -415,8 +430,7 @@ class DownloadPage(QWidget):
         self._start_phase1(url)
 
     def _start_phase1(self, url: str) -> None:
-        if self._hide_timer:
-            self._hide_timer.stop()
+        self._hide_timer.stop()
         self._set_state(self.LOADING)
         self.log("━" * 50)
         self.log(f"Rozpoczynam pobieranie: {url}")
@@ -449,6 +463,12 @@ class DownloadPage(QWidget):
         if result.first_image_bytes:
             self._preview_bytes[0] = result.first_image_bytes
             QTimer.singleShot(60, self._autosize_then_show)
+        else:
+            # Pierwszy obraz nie dojechał w fazie 1 (chwilowy błąd sieci).
+            # Bez tego podgląd zostawał pusty, dopóki użytkownik sam nie
+            # przewinął galerii — wyglądało to na zepsute pobieranie.
+            self.preview.setText("Pobieranie…")
+            self._start_image_job(0)
 
     def _autosize_then_show(self) -> None:
         data = self._preview_bytes.get(self._preview_idx)
@@ -513,10 +533,21 @@ class DownloadPage(QWidget):
 
         anim.cross_fade(self.preview,
                         lambda: self.preview.setText("Pobieranie…"))
-        job = workers.ImageJob(new_idx, self._phase1.image_urls[new_idx],
+        self._start_image_job(new_idx)
+
+    def _start_image_job(self, idx: int) -> None:
+        """Dociąga obraz do podglądu (jeden wątek na indeks).
+
+        Bez straży szybkie klikanie „dalej/wstecz" podmieniało referencję na
+        wciąż pracującym zadaniu — obiekt szedł do kosza w trakcie emisji
+        sygnału z wątku roboczego.
+        """
+        if not self._phase1 or idx in self._img_jobs:
+            return
+        job = workers.ImageJob(idx, self._phase1.image_urls[idx],
                                self._phase1.headers)
         job.done.connect(self._on_image_loaded)
-        self._img_jobs[new_idx] = job    # trzymaj referencję
+        self._img_jobs[idx] = job        # trzymaj referencję
         job.start()
 
     def _on_image_loaded(self, idx: int, data) -> None:
@@ -581,7 +612,7 @@ class DownloadPage(QWidget):
         self._set_state(self.IDLE)
 
     def _on_phase2_done(self, result: LessonResult) -> None:
-        self.status_title.setText(f"{I.CHECK}   Pobieranie zakończone")
+        self.status_title.setText(f"{I.OK}   Pobieranie zakończone")
         self.status_sub.setText("")
         self.status_pct.setText("100%")
         self.status_pct.setObjectName("StatusPctDone")
@@ -611,7 +642,7 @@ class DownloadPage(QWidget):
 
         if dirs:
             self.paths_layout.addWidget(
-                label(f"{I.CHECK}  Zapisano w folderach:", "FieldTitle"))
+                label(f"{I.OK}  Zapisano w folderach:", "FieldTitle"))
             self.paths_box.show()
             anim.stagger(dirs, self._add_path_row, first=80, step=70)
 
@@ -625,9 +656,6 @@ class DownloadPage(QWidget):
         self._set_state(self.DONE)
         self.history_changed.emit()
 
-        self._hide_timer = QTimer(self)
-        self._hide_timer.setSingleShot(True)
-        self._hide_timer.timeout.connect(self._hide_status)
         self._hide_timer.start(STATUS_AUTOHIDE_MS)
 
     def _add_path_row(self, d: str, _i: int) -> None:

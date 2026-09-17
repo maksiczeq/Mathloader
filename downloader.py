@@ -41,11 +41,11 @@ ProgressCallback = Callable[[float], None]  # 0.0 – 1.0
 
 HISTORY_FILE = history_file()
 
-# Strona lekcji pokazuje czas w strefie serwera — o 2 h wstecz względem czasu
-# lokalnego (PL). Dodajemy offset, żeby data utworzenia była realna.
-PAGE_TZ_OFFSET_HOURS = 2
-# Link do lekcji na serwerze przestaje działać po tygodniu od utworzenia.
-LINK_EXPIRY_DAYS = 7
+# Strona lekcji podaje czas w strefie serwera (UTC) — latem w Polsce o 2 h
+# wstecz względem zegara użytkownika, zimą o godzinę. Stałe „+2" myliłoby się
+# o godzinę przez pół roku, więc bierzemy realne przesunięcie strefy lokalnej.
+LINK_EXPIRY_DAYS = 7          # po tygodniu od utworzenia link przestaje działać
+SCROLL_MAX_SECONDS = 180      # górny limit przewijania jednej strony
 
 _HISTORY_TS_FMT = "%Y-%m-%d %H:%M:%S"
 _DATETIME_RE = re.compile(r"(\d{4})-(\d{2})-(\d{2})[ T]+(\d{1,2}):(\d{2}):(\d{2})")
@@ -165,11 +165,16 @@ def get_next_lesson_number(history: dict) -> int:
 
 
 def register_lesson(history: dict, url: str, lesson_number: int, topic: str,
-                    created_at: Optional[str] = None) -> None:
+                    created_at: Optional[str] = None,
+                    folders: Optional[list[str]] = None) -> None:
     """Rejestruje pobraną lekcję: aktualizuje licznik i dopisuje wpis do historii.
 
     `created_at` — realna data utworzenia lekcji (ze strony); od niej liczone
     jest wygaśnięcie linku. Gdy jej brak, używamy chwili pobrania.
+
+    `folders` — ścieżki folderów, które naprawdę powstały. Bez nich historia
+    musiałaby zgadywać nazwę z aktualnego szablonu i po jego zmianie (albo przy
+    kopii „[2]") przycisk „Otwórz" trafiałby w nieistniejący folder.
     """
     downloaded_at = time.strftime(_HISTORY_TS_FMT)
     created_at = created_at or downloaded_at
@@ -178,13 +183,16 @@ def register_lesson(history: dict, url: str, lesson_number: int, topic: str,
     existing_entry = next((e for e in lessons if e.get("url") == url), None)
 
     if existing_entry is None:
-        lessons.append({
+        entry = {
             "number": lesson_number,
             "url": url,
             "topic": topic,
             "downloaded_at": downloaded_at,
             "created_at": created_at,
-        })
+        }
+        if folders:
+            entry["folders"] = list(folders)
+        lessons.append(entry)
         # Licznik przesuwamy tylko dla naprawdę nowej lekcji.
         history["next_number"] = max(history.get("next_number", 1), lesson_number + 1)
     else:
@@ -192,6 +200,8 @@ def register_lesson(history: dict, url: str, lesson_number: int, topic: str,
         existing_entry["topic"] = topic
         existing_entry["downloaded_at"] = downloaded_at
         existing_entry["created_at"] = created_at
+        if folders:
+            existing_entry["folders"] = list(folders)
 
     history["last_url"] = url
     history["last_topic"] = topic
@@ -307,8 +317,17 @@ def scroll_to_bottom(
 
     previous_height = 0
     stale_count = 0
+    # Strona doklejająca treść bez końca (albo przeliczająca wysokość w kółko)
+    # utrzymywałaby `stale_count` na zerze i pętla nie skończyłaby się nigdy —
+    # aplikacja wyglądałaby na zawieszoną. Stąd twardy limit czasu.
+    deadline = time.monotonic() + SCROLL_MAX_SECONDS
 
     while stale_count < 5:
+        if time.monotonic() > deadline:
+            if on_log:
+                on_log(f"Przerywam przewijanie po {SCROLL_MAX_SECONDS} s "
+                       f"— strona rośnie bez końca.")
+            break
         page.evaluate(f"window.scrollBy(0, {scroll_step})")
         time.sleep(scroll_pause)
         current_height = page.evaluate("document.body.scrollHeight")
@@ -324,11 +343,16 @@ def scroll_to_bottom(
         on_log("Scrollowanie zakończone.")
 
 
+def _local_utc_offset() -> timedelta:
+    """Przesunięcie strefy lokalnej względem UTC (z poprawką na czas letni)."""
+    return datetime.now().astimezone().utcoffset() or timedelta(0)
+
+
 def extract_lesson_datetime(page) -> Optional[str]:
     """Wyciąga datę+godzinę utworzenia lekcji ze strony i przelicza na czas lokalny.
 
     Strona zawiera daty w formacie RRRR-MM-DD oraz godziny GG:MM:SS (czas serwera).
-    Bierzemy pierwsze pełne wystąpienie i dodajemy PAGE_TZ_OFFSET_HOURS.
+    Bierzemy pierwsze pełne wystąpienie i przeliczamy na czas lokalny.
     """
     text = ""
     try:
@@ -365,7 +389,7 @@ def extract_lesson_datetime(page) -> Optional[str]:
     if dt is None:
         return None
 
-    return (dt + timedelta(hours=PAGE_TZ_OFFSET_HOURS)).strftime(_HISTORY_TS_FMT)
+    return (dt + _local_utc_offset()).strftime(_HISTORY_TS_FMT)
 
 
 def collect_image_urls(page) -> list[str]:
@@ -513,15 +537,16 @@ def run_phase2(
     lesson_number = phase1.lesson_number
     save_paths = config.save_paths
 
-    folder_name = config.format_folder_name(lesson_number, topic)
-    folders = []
-    for p in save_paths:
-        target_dir = p / folder_name
-        copy_num = 2
-        while target_dir.exists():
-            target_dir = p / f"{folder_name} [{copy_num}]"
-            copy_num += 1
-        folders.append(target_dir)
+    # Nazwa folderu musi być JEDNA dla wszystkich kopii. Liczona osobno dla
+    # każdej ścieżki rozjeżdżała się („1 Lekcja" na dysku, „1 Lekcja [2]" na
+    # pendrivie), a historia i tak potrafi otworzyć tylko jedną z nich.
+    base_name = config.format_folder_name(lesson_number, topic)
+    folder_name = base_name
+    copy_num = 2
+    while any((p / folder_name).exists() for p in save_paths):
+        folder_name = f"{base_name} [{copy_num}]"
+        copy_num += 1
+    folders = [p / folder_name for p in save_paths]
 
     if on_log:
         on_log(f"Folder: {folder_name}")
@@ -565,7 +590,8 @@ def run_phase2(
     # Rejestracja w historii
     history = load_history()
     register_lesson(history, url, lesson_number, topic,
-                    created_at=getattr(phase1, "lesson_created_at", None))
+                    created_at=getattr(phase1, "lesson_created_at", None),
+                    folders=[str(f) for f in folders])
 
     if on_log:
         on_log(f"\n✅ GOTOWE — pobrano {downloaded_count}/{total} obrazów.")

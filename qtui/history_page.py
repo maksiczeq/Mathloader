@@ -2,10 +2,11 @@
 from __future__ import annotations
 
 import subprocess
+from pathlib import Path
 from typing import Optional
 
 from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QFont, QGuiApplication
+from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
     QComboBox, QFrame, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout,
     QWidget,
@@ -16,10 +17,47 @@ from downloader import (
     delete_lesson, is_link_expired, lesson_expiry, load_history, save_history,
 )
 from qtui import anim
-from qtui.theme import I, PAD_LG, PAD_MD, PAD_SM
+from qtui.theme import C, G, I, PAD_LG, PAD_MD, PAD_SM
 from qtui.widgets import ConfirmDialog, Toast, hbox, label, restyle, vbox
 
 SORTS = ["Najnowsze najpierw", "Najstarsze najpierw", "Nazwa: A-Z", "Nazwa: Z-A"]
+
+# Kaskada wejścia listy: ile kart animować i co ile milisekund.
+FADE_STEP = 40
+FADE_CAP = 10
+
+
+def lesson_folders(lesson: dict, config: AppConfig) -> list[Path]:
+    """Foldery, w których leży ta lekcja.
+
+    Pobieranie zapisuje realne ścieżki w historii (`folders`). Starsze wpisy
+    ich nie mają — dla nich nazwę trzeba odtworzyć z aktualnego szablonu, co
+    się rozjedzie, jeśli użytkownik zmienił format nazw po pobraniu.
+    """
+    stored = [Path(f) for f in lesson.get("folders", []) if f]
+    if stored:
+        return stored
+    name = config.format_folder_name(lesson.get("number", 1),
+                                     lesson.get("topic", ""))
+    return [base / name for base in config.save_paths]
+
+
+def pick_lesson_folder(lesson: dict, config: AppConfig) -> Optional[Path]:
+    """Folder do otwarcia: najpierw kopia w ścieżce domyślnej, potem reszta.
+
+    Dzięki temu „Otwórz" trafia tam, gdzie użytkownik ustawił domyślny zapis,
+    a nie w pierwszy lepszy nośnik — a gdy ten akurat jest odłączony, sięga po
+    kolejną istniejącą kopię zamiast zgłaszać brak plików.
+    """
+    existing = [f for f in lesson_folders(lesson, config) if f.exists()]
+    if not existing:
+        return None
+    default = config.default_save_path
+    if default is not None:
+        for folder in existing:
+            if folder.parent == default:
+                return folder
+    return existing[0]
 
 
 class LessonCard(QFrame):
@@ -36,6 +74,7 @@ class LessonCard(QFrame):
         self._url = lesson.get("url", "")
         self._short = self._url[:64] + "…" if len(self._url) > 64 else self._url
         self._copied = False
+        self._deleting = False
 
         # Wygaśnięcie liczone od DATY UTWORZENIA lekcji (created_at), a nie od
         # chwili pobrania — link na serwerze żyje tydzień od powstania lekcji.
@@ -49,7 +88,8 @@ class LessonCard(QFrame):
         # górny wiersz: numer + temat
         top = QWidget(self)
         tl = hbox(top, s=PAD_MD)
-        num = label(f"#{lesson.get('number', '?')}", "LessonNumber")
+        num = label(f"#{lesson.get('number', '?')}",
+                    "LessonNumberExpired" if self._expired else "LessonNumber")
         num.setFixedWidth(52)
         tl.addWidget(num)
 
@@ -93,7 +133,7 @@ class LessonCard(QFrame):
         self.open_btn.clicked.connect(self._open_folder)
         bl.addWidget(self.open_btn)
 
-        self.del_btn = QPushButton(I.CROSS, bottom)
+        self.del_btn = QPushButton(G.CLOSE, bottom)
         self.del_btn.setObjectName("IconDanger")
         self.del_btn.setFixedWidth(38)
         self.del_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -121,7 +161,7 @@ class LessonCard(QFrame):
             return
         QGuiApplication.clipboard().setText(self._url)
         self._copied = True
-        self.url_btn.setText(f"{I.CHECK}  Skopiowano")
+        self.url_btn.setText(f"{I.OK}  Skopiowano")
         self.url_btn.setObjectName("UrlChipCopied")
         restyle(self.url_btn)
 
@@ -135,26 +175,31 @@ class LessonCard(QFrame):
         QTimer.singleShot(1500, _restore)
 
     def _open_folder(self) -> None:
-        topic = self._lesson.get("topic", "Bez_tematu")
-        num = self._lesson.get("number", 1)
-        folder = self._config.format_folder_name(num, topic)
-        opened = False
-        for base in self._config.save_paths:
-            full = base / folder
-            if full.exists():
-                subprocess.Popen(["explorer", str(full)])
-                opened = True
-                break
-        if not opened:
-            paths = self._config.save_paths
-            if paths and paths[0].exists():
-                subprocess.Popen(["explorer", str(paths[0])])
-                opened = True
-        self.open_btn.setText(f"{I.CHECK}  OK" if opened else "—")
+        """Otwiera folder lekcji — z pierwszeństwem dla ścieżki domyślnej."""
+        folder = pick_lesson_folder(self._lesson, self._config)
+        if folder is not None:
+            subprocess.Popen(["explorer", str(folder)])
+            self.open_btn.setText(f"{I.OK}  OK")
+            QTimer.singleShot(
+                1500, lambda: self.open_btn.setText(f"{I.OPEN}  Otwórz"))
+            return
+
+        # Żadna kopia nie istnieje: pliki skasowano albo nośnik jest odłączony.
+        # Cisza byłaby tu najgorsza — użytkownik zobaczyłby „—" bez powodu.
+        self.open_btn.setText("—")
         QTimer.singleShot(
-            1500, lambda: self.open_btn.setText(f"{I.OPEN}  Otwórz"))
+            1800, lambda: self.open_btn.setText(f"{I.OPEN}  Otwórz"))
+        Toast.show_at(
+            self.window(),
+            f"{I.WARN}  Nie znaleziono folderu tej lekcji",
+            C.WARNING, ms=2200)
+        default = self._config.default_save_path
+        if default is not None and default.exists():
+            subprocess.Popen(["explorer", str(default)])
 
     def _on_delete(self) -> None:
+        if self._deleting:                 # karta już odjeżdża — nie dubluj
+            return
         shift = bool(QGuiApplication.keyboardModifiers()
                      & Qt.KeyboardModifier.ShiftModifier)
         if shift:
@@ -177,6 +222,8 @@ class LessonCard(QFrame):
             self._do_delete()
 
     def _do_delete(self) -> None:
+        self._deleting = True
+        self.del_btn.setEnabled(False)
         anim.slide_up(self, ms=anim.FAST,
                       on_done=lambda: self.deleted.emit(self._lesson))
 
@@ -188,7 +235,11 @@ class HistoryPage(QWidget):
         super().__init__(parent)
         self._config = config
         self._sort = SORTS[0]
-        self._gen = 0
+        # Filtr wygasłych: domyślnie wyłączony, potem ostatni wybór użytkownika.
+        self._hide_expired = config.hide_expired
+        self._signature: Optional[tuple] = None
+        self._hidden = 0
+        self._intro_pending = True
         self._build()
         self.refresh()
 
@@ -207,6 +258,15 @@ class HistoryPage(QWidget):
         self.sort_combo.currentTextChanged.connect(self._on_sort)
         hl.addWidget(self.sort_combo)
 
+        self.expired_btn = QPushButton(f"{I.EXPIRED}  Ukryj wygasłe", head)
+        self.expired_btn.setObjectName("FilterToggle")
+        self.expired_btn.setCheckable(True)
+        self.expired_btn.setChecked(self._hide_expired)
+        self.expired_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.expired_btn.toggled.connect(self._on_toggle_expired)
+        self._sync_expired_button()
+        hl.addWidget(self.expired_btn)
+
         self.clear_btn = QPushButton(f"{I.ERASE}  Wyczyść historię", head)
         self.clear_btn.setObjectName("CardAction")
         self.clear_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -224,36 +284,55 @@ class HistoryPage(QWidget):
         self.scroll.setWidget(holder)
         root.addWidget(self.scroll, 1)
 
-    # ── dane ──
+    # ── nagłówek i filtr ──
 
     def _on_sort(self, value: str) -> None:
         self._sort = value
         self.refresh()
 
+    def _sync_expired_button(self) -> None:
+        self.expired_btn.setToolTip(
+            "Lekcje z wygasłym linkiem są ukryte — kliknij, aby je pokazać."
+            if self._hide_expired else
+            "Ukryj lekcje, których link już wygasł (pliki zostają na dysku).")
+
+    def _on_toggle_expired(self, checked: bool) -> None:
+        self._hide_expired = checked
+        self._sync_expired_button()
+        self._config.hide_expired = checked
+        self._config.save()
+        self.refresh()
+
+    def _set_count(self, shown: int, hidden: int) -> None:
+        """Nagłówek listy: ile lekcji widać i ile schował filtr wygasłych."""
+        text = f"{I.LIST}  Pobrane lekcje ({shown})"
+        if hidden:
+            text += f"   •   ukryto wygasłe: {hidden}"
+        self.count_label.setText(text)
+
+    # ── lista ──
+
+    def _cards(self) -> list[LessonCard]:
+        return [w for i in range(self.list_layout.count())
+                if isinstance(w := self.list_layout.itemAt(i).widget(), LessonCard)]
+
     def _clear_rows(self) -> None:
         while self.list_layout.count() > 1:     # zostaw stretch
             it = self.list_layout.takeAt(0)
-            if it.widget():
-                it.widget().deleteLater()
+            w = it.widget()
+            if w is not None:
+                # Samo `deleteLater()` zostawiłoby widget na ekranie do końca
+                # bieżącej pętli zdarzeń — stara lista mignęłaby pod nową.
+                w.setParent(None)
+                w.deleteLater()
 
-    def refresh(self) -> None:
-        self._clear_rows()
-        self._gen += 1
-        gen = self._gen
-
+    def _sorted_lessons(self) -> tuple[list[dict], int]:
         lessons = load_history().get("lessons", [])
-        if not lessons:
-            self.count_label.setText(f"{I.LIST}  Pobrane lekcje (0)")
-            empty = label(
-                f"{I.LIST}\n\nBrak pobranych lekcji.\n"
-                f"Przejdź do zakładki „Pobierz”.",
-                "EmptyState", wrap=True)
-            empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.list_layout.insertWidget(0, empty)
-            anim.fade_in(empty, ms=anim.SLOW)
-            return
-
-        self.count_label.setText(f"{I.LIST}  Pobrane lekcje ({len(lessons)})")
+        hidden = 0
+        if self._hide_expired:
+            live = [x for x in lessons if not is_link_expired(x)]
+            hidden = len(lessons) - len(live)
+            lessons = live
 
         if self._sort == SORTS[0]:
             lessons.sort(key=lambda x: x.get("downloaded_at", ""), reverse=True)
@@ -263,21 +342,93 @@ class HistoryPage(QWidget):
             lessons.sort(key=lambda x: x.get("topic", "").lower())
         else:
             lessons.sort(key=lambda x: x.get("topic", "").lower(), reverse=True)
+        return lessons, hidden
 
-        def add(lesson, i) -> None:
-            if gen != self._gen:
-                return
-            c = LessonCard(lesson, self._config)
-            c.deleted.connect(self._on_card_deleted)
-            self.list_layout.insertWidget(self.list_layout.count() - 1, c)
-            anim.pop_in(c, ms=anim.BASE)
+    def refresh(self) -> None:
+        """Przebudowuje listę, ale tylko gdy naprawdę się zmieniła.
 
-        anim.stagger(lessons, add, first=0, step=45, cap=12)
+        Zakładka odświeża się przy każdym wejściu, a przebudowa z animacją za
+        każdym razem to migotanie bez powodu — i to ono „glitchowało" przy
+        kilkunastu lekcjach.
+        """
+        lessons, hidden = self._sorted_lessons()
+        # Data wygaśnięcia zmienia kolor numeru, więc wchodzi do odcisku palca.
+        signature = (self._sort, self._hide_expired, hidden, tuple(
+            (x.get("url"), x.get("number"), x.get("topic"),
+             x.get("downloaded_at"), is_link_expired(x)) for x in lessons))
+        if signature == self._signature:
+            return
+        self._signature = signature
+        self._hidden = hidden
+
+        self._clear_rows()
+        if not lessons:
+            self._set_count(0, hidden)
+            empty = label(
+                f"{I.EXPIRED}\n\nWszystkie lekcje mają wygasłe linki i są ukryte.\n"
+                f"Wyłącz „Ukryj wygasłe”, aby je zobaczyć."
+                if hidden else
+                f"{I.EMPTY}\n\nBrak pobranych lekcji.\n"
+                f"Przejdź do zakładki „Pobierz”.",
+                "EmptyState", wrap=True)
+            empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.list_layout.insertWidget(0, empty)
+            anim.fade_in(empty, ms=anim.SLOW)
+            return
+
+        self._set_count(len(lessons), hidden)
+
+        # Wszystkie karty wstawiamy naraz i przy wyłączonym rysowaniu: układ
+        # (a z nim pasek przewijania) ustala się raz, przed jakąkolwiek animacją.
+        holder = self.scroll.widget()
+        holder.setUpdatesEnabled(False)
+        try:
+            for lesson in lessons:
+                card = LessonCard(lesson, self._config)
+                card.deleted.connect(self._on_card_deleted)
+                self.list_layout.insertWidget(self.list_layout.count() - 1, card)
+        finally:
+            holder.setUpdatesEnabled(True)
+
+        self._play_intro()
+
+    def _play_intro(self) -> None:
+        """Kaskada wejścia — wyłącznie na przezroczystości.
+
+        Poprzednio każda karta dojeżdżała też do swojej wysokości (`pop_in`),
+        więc lista przeliczała układ kilkanaście razy w trakcie wejścia i
+        skakała. Tu geometria jest gotowa od pierwszej klatki.
+        """
+        if not self.isVisible():
+            self._intro_pending = True      # dokończymy przy pokazaniu zakładki
+            return
+        self._intro_pending = False
+        for i, card in enumerate(self._cards()[:FADE_CAP]):
+            anim.fade_in(card, ms=anim.BASE, delay=i * FADE_STEP)
+
+    def showEvent(self, e) -> None:          # noqa: N802
+        super().showEvent(e)
+        if self._intro_pending:
+            self._play_intro()
 
     def _on_card_deleted(self, lesson: dict) -> None:
         history = load_history()
         delete_lesson(history, lesson)
-        self.refresh()
+
+        # Wyjmujemy jedną kartę zamiast przebudowywać listę: pozostałe zostają
+        # na swoich miejscach, a widok nie skacze na początek.
+        card = self.sender()
+        if isinstance(card, LessonCard):
+            self.list_layout.removeWidget(card)
+            card.setParent(None)
+            card.deleteLater()
+        self._signature = None              # dane się zmieniły
+
+        left = len(self._cards())
+        if left:
+            self._set_count(left, self._hidden)
+        else:
+            self.refresh()                  # pokaż stan pusty
 
     def _clear_history(self) -> None:
         dlg = ConfirmDialog(
@@ -290,4 +441,4 @@ class HistoryPage(QWidget):
         if dlg.exec() == ConfirmDialog.DialogCode.Accepted:
             save_history({"lessons": [], "next_number": 1})
             self.refresh()
-            Toast.show_at(self.window(), f"{I.CHECK}  Historia wyczyszczona")
+            Toast.show_at(self.window(), f"{I.OK}  Historia wyczyszczona")

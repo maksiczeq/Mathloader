@@ -103,6 +103,11 @@ inaczej nie wykryjesz brakujących zależności.
 - [ ] Zamknij i uruchom ponownie → kreator **się nie pokazuje** (to test zapisu do `%APPDATA%`)
 - [ ] Wklej prawdziwy link lekcji → pobiera obrazy do końca *(najważniejszy test — sprawdza dołączone Chromium)*
 - [ ] Zakładka Historia pokazuje pobraną lekcję
+- [ ] Historia: „Otwórz” trafia do folderu w **domyślnej** (pierwszej) ścieżce,
+      a po odłączeniu tego nośnika — do kolejnej istniejącej kopii
+- [ ] Ustawienia: pinezka ustawia ścieżkę domyślną (wiersz idzie na górę),
+      a domyślnej nie da się usunąć — „✕” przy niej jest wyszarzone
+- [ ] Historia: przełącznik „Ukryj wygasłe” chowa lekcje starsze niż tydzień
 - [ ] Zakładka Info pokazuje licencję MIT, autora i **aktualny numer wersji**
 - [ ] Info → *Sprawdź aktualizacje* odpowiada oknem systemowym (a nie ciszą)
 - [ ] Okna **nie da się rozciągnąć** myszką ani przyciągnąć do krawędzi (Win+↑),

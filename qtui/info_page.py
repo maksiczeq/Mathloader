@@ -10,7 +10,7 @@ from PySide6.QtWidgets import QFrame, QPushButton, QScrollArea, QWidget
 
 from version import APP_VERSION
 from qtui.theme import F, I, PAD_LG, PAD_MD, PAD_SM, PAD_XL
-from qtui.widgets import card, hbox, hline, label, vbox
+from qtui.widgets import card, glyph_label, hbox, hline, label, vbox
 
 _LICENSE_PATH = Path(__file__).resolve().parent.parent / "LICENSE"
 
@@ -54,7 +54,12 @@ class InfoPage(QWidget):
         L = vbox(holder, m=PAD_XL, s=PAD_MD)
 
         # ── Nagłówek ──
-        L.addWidget(label(f"{I.SPARK}  Mathloader", "PageTitle"))
+        head = QWidget(holder)
+        hdl = hbox(head, s=PAD_MD)
+        hdl.addWidget(glyph_label("APP", obj="AppGlyphXl", parent=head))
+        hdl.addWidget(label("Mathloader", "PageTitle"))
+        hdl.addStretch(1)
+        L.addWidget(head)
         L.addWidget(label("Mathloader — automatyczne pobieranie obrazów lekcji "
                           "matematyki z dynamicznych stron.", "Hint", wrap=True))
 
@@ -87,7 +92,7 @@ class InfoPage(QWidget):
         L.addSpacing(PAD_SM)
 
         # ── Licencja ──
-        L.addWidget(label(f"{I.CHECK}  Licencja: MIT — otwarte oprogramowanie",
+        L.addWidget(label(f"{I.LICENSE}  Licencja: MIT — otwarte oprogramowanie",
                           "SectionTitle"))
         L.addWidget(label("Możesz swobodnie używać, kopiować, modyfikować i "
                           "rozpowszechniać ten program.", "Hint", wrap=True))

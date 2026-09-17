@@ -17,11 +17,11 @@ from qtui.history_page import HistoryPage
 from qtui.info_page import InfoPage
 from qtui.settings_page import SettingsPage
 from qtui.theme import (
-    C, I, PAD_LG, PAD_MD, PAD_SM, PAD_XL, RADIUS, is_dark, set_theme,
+    C, G, I, PAD_LG, PAD_MD, PAD_SM, PAD_XL, RADIUS, is_dark, set_theme,
     stylesheet, toggle_theme,
 )
 from qtui.updates import UpdateChecker
-from qtui.widgets import TabBar, hbox, label, vbox
+from qtui.widgets import TabBar, glyph_label, hbox, label, vbox
 
 TAB_DOWNLOAD, TAB_HISTORY, TAB_SETTINGS, TAB_INFO = 0, 1, 2, 3
 
@@ -86,7 +86,11 @@ class MainWindow(QWidget):
         # ── Nagłówek ──
         head = QWidget(self)
         hl = hbox(head, s=PAD_MD)
-        hl.addWidget(label(f"{I.SPARK}  Mathloader", "AppTitle"))
+        title = QWidget(head)
+        tll = hbox(title, s=PAD_SM)
+        tll.addWidget(glyph_label("APP", obj="AppGlyph", parent=title))
+        tll.addWidget(label("Mathloader", "AppTitle"))
+        hl.addWidget(title)
         hl.addStretch(1)
         hl.addWidget(label(f"v{APP_VERSION}  •  Qt", "AppVersion"))
 
@@ -104,6 +108,11 @@ class MainWindow(QWidget):
         bl = vbox(self.banner, m=PAD_MD, s=4)
         row = QWidget(self.banner)
         rl = hbox(row, s=PAD_SM)
+        # Ikona osobno, bo baner ma kolorowe tło: emoji ⚠ (żółte) na żółtym
+        # pasku po prostu znika, a osobna etykieta bierze kolor z kodu.
+        self.banner_icon = glyph_label("WARNING", obj="GlyphLg", parent=row)
+        self.banner_icon.setAlignment(Qt.AlignmentFlag.AlignTop)
+        rl.addWidget(self.banner_icon)
         self.banner_kw = label("", "FieldTitle")
         self.banner_kw.setAlignment(Qt.AlignmentFlag.AlignTop)
         rl.addWidget(self.banner_kw)
@@ -123,7 +132,7 @@ class MainWindow(QWidget):
         # ── Zakładki ──
         self.tabs = TabBar(
             [f"{I.DOWNLOAD}   Pobierz",
-             f"{I.LIST}   Historia",
+             f"{I.HISTORY}   Historia",
              f"{I.GEAR}   Ustawienia",
              f"{I.INFO}   Info"],
             self._switch_tab, self)
@@ -157,7 +166,7 @@ class MainWindow(QWidget):
     def _sync_theme_button(self) -> None:
         """Ikona pokazuje motyw, NA KTÓRY przełączy kliknięcie."""
         dark = is_dark()
-        self.theme_btn.setText(I.SUN if dark else I.MOON)
+        self.theme_btn.setText(G.SUN if dark else G.MOON)
         self.theme_btn.setToolTip(
             "Przełącz na jasny motyw" if dark else "Przełącz na ciemny motyw")
 
@@ -274,28 +283,41 @@ class MainWindow(QWidget):
         elif not ok:
             self._problem = (bad, C.ERROR)
             self._show_banner(
-                C.ERROR, f"{I.STOP}  BŁĄD:",
+                C.ERROR, "BŁĄD:",
                 "Brak wykrytych ścieżek zapisu. Upewnij się, że zadeklarowany "
                 "dysk istnieje i jest widoczny przez system, a następnie "
                 "zaktualizuj ścieżkę.",
-                C.TEXT_ON_PRIMARY)
+                C.TEXT_ON_PRIMARY, glyph="ERROR")
             self.download_page.set_download_enabled(False)
             self.settings_page.form.highlight_paths(bad, C.ERROR)
         else:
             self._problem = (bad, C.WARNING)
+            paths = self._config.save_paths
+            # Odłączony pendrive na pierwszej pozycji to inna sytuacja niż
+            # martwa kopia zapasowa: to z domyślnej ścieżki historia otwiera
+            # foldery, więc użytkownik musi wiedzieć, że straciła dostępność.
+            if paths and str(paths[0]) in bad:
+                text = ("Domyślna ścieżka zapisu jest niedostępna — to zwykle "
+                        "odłączony pendrive lub dysk sieciowy. Lekcje nadal "
+                        "zapiszą się w pozostałych kopiach, a „Otwórz” w "
+                        "historii sięgnie po pierwszy dostępny folder. "
+                        "Kolejność ścieżek zmienisz w Ustawieniach.")
+            else:
+                text = ("Niektóre dodatkowe ścieżki zapisu są nieaktywne lub "
+                        "niewykrywalne przez system. Nadal możesz bezpiecznie "
+                        "pobierać lekcje, ale zostaną zapisane bez wszystkich "
+                        "kopii.")
             self._show_banner(
-                C.WARNING, f"{I.WARN}  OSTRZEŻENIE:",
-                "Niektóre dodatkowe ścieżki zapisu są nieaktywne lub "
-                "niewykrywalne przez system. Nadal możesz bezpiecznie pobierać "
-                "lekcje, ale zostaną zapisane bez wszystkich kopii.",
-                C.TEXT_ON_WARNING)
+                C.WARNING, "OSTRZEŻENIE:", text, C.TEXT_ON_WARNING)
             self.download_page.set_download_enabled(True)
             self.settings_page.form.highlight_paths(bad, C.WARNING)
 
     def _show_banner(self, color: str, keyword: str, text: str,
-                     fg: str) -> None:
+                     fg: str, glyph: str = "WARNING") -> None:
         first = not self._warning_on
         self._banner_color = color        # odświeżane co przebieg walidacji
+        self.banner_icon.setText(getattr(G, glyph))
+        self.banner_icon.setStyleSheet(f"color: {fg}; background: transparent;")
         self.banner_kw.setText(keyword)
         self.banner_kw.setStyleSheet(f"color: {fg}; font-weight: 700;")
         self.banner_text.setText(text)

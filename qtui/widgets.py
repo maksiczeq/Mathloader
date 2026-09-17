@@ -3,14 +3,15 @@ from __future__ import annotations
 
 from typing import Callable, Optional
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QSize, Qt, QTimer
+from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QButtonGroup, QDialog, QFrame, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QSizePolicy, QVBoxLayout, QWidget,
 )
 
 from qtui import anim
-from qtui.theme import C, I, PAD_LG, PAD_MD, PAD_SM, PAD_XL, RADIUS
+from qtui.theme import C, G, I, PAD_MD, PAD_SM, PAD_XL, RADIUS, icon_font
 
 
 def card(parent: Optional[QWidget] = None, *, surface: bool = False) -> QFrame:
@@ -47,6 +48,68 @@ def hbox(w: QWidget, m: int = 0, s: int = 0) -> QHBoxLayout:
     lay.setContentsMargins(m, m, m, m)
     lay.setSpacing(s)
     return lay
+
+
+# ── Ikony z fontu systemowego ───────────────────────────────────────────────
+
+def glyph_label(name: str, *, obj: str = "Glyph",
+                parent: Optional[QWidget] = None) -> QLabel:
+    """Etykieta z jedną ikoną z fontu systemowego.
+
+    Rodzinę (i rozmiar) nadaje QSS po `objectName` — `setFont()` przegrałoby tu
+    z regułą `*` z początku arkusza i zamiast ikony wyszedłby pusty prostokąt.
+    Stąd `obj`: „Glyph", „GlyphLg", „GlyphXl", „AppGlyph", „AppGlyphXl".
+    """
+    lb = QLabel(getattr(G, name), parent)
+    lb.setObjectName(obj)
+    return lb
+
+
+def glyph_icon(name: str, color: str, size: int = 16) -> QIcon:
+    """Ikona z fontu systemowego wypalona w pixmapę o zadanym kolorze.
+
+    Tylko dla kolorów NIEZALEŻNYCH od motywu (biel na niebieskim/zielonym/
+    czerwonym przycisku). Kolor zależny od palety zostałby w pixmapie z
+    poprzedniego motywu — QSS takiej ikony nie przemaluje.
+
+    Rysujemy w podwójnej skali i oznaczamy pixmapę jako 2×, żeby na ekranie
+    z DPI 150–200% ikona nie wyszła rozmyta.
+    """
+    family = icon_font()
+    if not family:
+        return QIcon()
+
+    def _draw(pen: QColor) -> QPixmap:
+        pm = QPixmap(size * 2, size * 2)
+        pm.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pm)
+        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+        font = QFont(family)
+        font.setPixelSize(size * 2)
+        painter.setFont(font)
+        painter.setPen(pen)
+        painter.drawText(pm.rect(), Qt.AlignmentFlag.AlignCenter, getattr(G, name))
+        painter.end()
+        pm.setDevicePixelRatio(2.0)
+        return pm
+
+    normal = QColor(color)
+    faded = QColor(color)
+    faded.setAlpha(100)
+    icon = QIcon(_draw(normal))
+    # Wariant dla przycisku wyłączonego rysujemy sami: styl przygasza napis,
+    # ale gotową pixmapę zostawiłby w pełnej jasności i ikona odstawałaby.
+    icon.addPixmap(_draw(faded), QIcon.Mode.Disabled)
+    return icon
+
+
+def set_glyph(button: QPushButton, name: str, *, color: str = "#ffffff",
+              size: int = 16) -> None:
+    """Wstawia ikonę w przycisk z tekstem (bez fontu ikon nie robi nic)."""
+    icon = glyph_icon(name, color, size)
+    if not icon.isNull():
+        button.setIcon(icon)
+        button.setIconSize(QSize(size, size))
 
 
 def restyle(w: QWidget) -> None:
@@ -168,8 +231,9 @@ class ConfirmDialog(BaseDialog):
 
         row = QWidget(self)
         rl = hbox(row, s=PAD_MD)
-        ok = QPushButton(f"{I.CHECK}  {confirm_text}", row)
+        ok = QPushButton(f"  {confirm_text}", row)
         ok.setObjectName("DangerSolid" if danger else "Primary")
+        set_glyph(ok, "CHECK")
         ok.setCursor(Qt.CursorShape.PointingHandCursor)
         ok.clicked.connect(self.accept)
 

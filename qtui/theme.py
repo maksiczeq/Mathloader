@@ -74,6 +74,10 @@ DARK = Palette(
     URL_CHIP_HOVER="#ffffff",
     CHIP_EXPIRED="#555a61",
     CHIP_EXPIRED_HOVER="#8a9099",
+    # Numer lekcji, której link już wygasł — przygaszony PRIMARY.
+    LESSON_EXPIRED="#346399",
+    # Podpis „Domyślna" przy pierwszej ścieżce zapisu.
+    DEFAULT_MARK="#e3b341",
     SCROLL="#2b3444",
     SCROLL_HOVER="#3a465c",
 )
@@ -129,6 +133,10 @@ LIGHT = Palette(
     URL_CHIP_HOVER="#0969da",
     CHIP_EXPIRED="#a0a8b0",
     CHIP_EXPIRED_HOVER="#6e7781",
+    # W jasnym motywie „przygaszenie” idzie w stronę tła, czyli w jaśniejszy
+    # błękit — ciemniejszy niebieski byłby tu mocniejszy, nie słabszy.
+    LESSON_EXPIRED="#8fb3d9",
+    DEFAULT_MARK="#9a6700",
     SCROLL="#d0d7de",
     SCROLL_HOVER="#afb8c1",
 )
@@ -188,43 +196,154 @@ class F:
 
 
 class Icon:
-    """Piktogramy Unicode — renderują się w kolorze tekstu."""
+    """Ikony wplecione w tekst etykiet i przycisków.
 
-    DOWNLOAD   = "⬇"
-    REFRESH    = "↻"
-    SCAN       = "◌"
+    Świadomie dwa rodzaje:
+
+    • **Emoji** (kolorowe) — tam, gdzie ikona zdobi i nazywa sekcję: zakładki,
+      nagłówki, statusy, komunikaty. Windows rysuje je z Segoe UI Emoji,
+      niezależnie od motywu i koloru tekstu.
+    • **Zwykłe znaki** (`CHECK`, `CROSS`, strzałki, trójkąty) — tam, gdzie ikona
+      leży na kolorowym tle przycisku albo jest elementem sterującym. Biorą
+      kolor tekstu, więc nie gryzą się z niebieskim/zielonym/czerwonym tłem.
+
+    Znaków z prywatnego obszaru Unicode (Segoe Fluent Icons) TU NIE MA — Qt nie
+    robi dla nich podmiany fontu w środku zwykłego napisu (sprawdzone: zamiast
+    ikony wychodzi pusty prostokąt). Te siedzą w `G` i działają wyłącznie
+    w przyciskach, których cała treść to sam znak.
+    """
+
+    # ── emoji (kolorowe) ──
+    DOWNLOAD   = "📥"
+    REFRESH    = "🔄"
+    SCAN       = "🔍"
+    OK         = "✅"
+    GEAR       = "⚙️"
+    WARN       = "⚠️"
+    STOP       = "⛔"
+    LIST       = "📚"
+    HISTORY    = "🕘"
+    EMPTY      = "📭"
+    EXPIRED    = "⏳"
+    ERASE      = "🗑️"
+    FOLDER     = "📁"
+    OPEN       = "📂"
+    DATA       = "🗂️"
+    NAME_TAG   = "🏷️"
+    TOPIC      = "📝"
+    CONSOLE    = "🖥️"
+    # ℹ bez selektora emoji zostaje jednobarwne — a że siedzi na aktywnej
+    # (niebieskiej) zakładce, musi brać kolor tekstu, nie własny.
+    INFO       = "ℹ"
+    PLUS       = "➕"
+    LICENSE    = "📜"
+
+    # ── znaki jednobarwne (dziedziczą kolor tekstu) ──
     CHECK      = "✓"
     CROSS      = "✕"
-    GEAR       = "⚙"
-    WARN       = "⚠"
-    STOP       = "⛔"
-    LIST       = "☰"
-    CHEVRON_D  = "⌄"
-    CHEVRON_U  = "⌃"
+    CHEVRON_D  = "▾"
+    CHEVRON_U  = "▴"
     TRI_RIGHT  = "▸"
     TRI_DOWN   = "▾"
     ARROW_R    = "→"
     ARROW_L    = "←"
-    OPEN       = "↗"
-    ERASE      = "⌫"
-    FOLDER     = "▰"
-    NAME_TAG   = "▤"
-    SLIDERS    = "≡"
-    SPARK      = "✦"
     DOT        = "●"
-    PLUS       = "＋"
-    INFO       = "ℹ"
     HEART      = "♥"
-    SUN        = "☀"
-    MOON       = "☾"
 
 
 I = Icon
+
+
+# ── Ikony systemowe (Segoe Fluent Icons) ────────────────────────────────────
+#
+# Font ikon Windows daje ostre, spójne piktogramy sterujące (✕, strzałki,
+# chevrony). Warunek: widget musi mieć USTAWIONĄ tę rodzinę — Qt nie podmienia
+# fontu dla pojedynczego znaku w środku napisu. Dlatego używamy ich tylko
+# w przyciskach bez tekstu, a rodzinę nadaje im QSS (patrz `stylesheet`).
+#
+# Gdy fontu nie ma (starszy Windows, Wine), `G` zwraca zapasowy znak Unicode
+# i QSS nie podmienia rodziny — nikomu nie wyświetli się pusty prostokąt.
+
+_ICON_FONTS = ("Segoe Fluent Icons", "Segoe MDL2 Assets")
+
+# nazwa → (kod w foncie ikon, znak zapasowy)
+_GLYPHS: dict[str, tuple[int, str]] = {
+    "CLOSE":     (0xE711, "✕"),
+    "CHEVRON_L": (0xE76B, "←"),
+    "CHEVRON_R": (0xE76C, "→"),
+    "SUN":       (0xE706, "☀"),
+    "MOON":      (0xE708, "☾"),
+    "UP":        (0xE74A, "↑"),
+    "DOWN":      (0xE74B, "↓"),
+    "BROWSE":    (0xE8DA, "…"),
+    # Ikony wypalane w pixmapę (białe na kolorowym przycisku) i ikony banera.
+    "DOWNLOAD":  (0xE896, "⬇"),
+    "REFRESH":   (0xE72C, "↻"),
+    "CHECK":     (0xE73E, "✓"),
+    "FORWARD":   (0xE76C, "→"),
+    "WARNING":   (0xE814, "⚠"),
+    "ERROR":     (0xE783, "⛔"),
+    # Strzałka w kreskę — ten sam znak, co na ikonie aplikacji (⤓).
+    "APP":       (0xE896, "⤓"),
+    # Zarysowana pinezka zamiast wypełnionej: przy 14 px wypełniona zlewa się
+    # w romb i przestaje być czytelna.
+    "PIN":       (0xE718, "▲"),
+}
+
+_icon_font = None        # None = jeszcze nie sprawdzone, "" = brak fontu ikon
+
+
+def icon_font() -> str:
+    """Nazwa dostępnego fontu ikon (pusty ciąg, gdy żadnego nie ma).
+
+    Wynik jest zapamiętywany, ale liczony leniwie — `QFontDatabase` wymaga
+    działającej aplikacji Qt, a ten moduł importuje się wcześniej.
+    """
+    global _icon_font
+    if _icon_font is None:
+        try:
+            from PySide6.QtGui import QFontDatabase
+            available = set(QFontDatabase.families())
+        except Exception:                    # noqa: BLE001 — brak Qt = brak ikon
+            available = set()
+        _icon_font = next((f for f in _ICON_FONTS if f in available), "")
+    return _icon_font
+
+
+class _Glyphs:
+    """`G.CLOSE` → znak z fontu ikon albo zapasowy, zależnie od systemu."""
+
+    def __getattr__(self, name: str) -> str:
+        try:
+            code, fallback = _GLYPHS[name]
+        except KeyError as exc:
+            raise AttributeError(f"Nie znam ikony {name!r}") from exc
+        return chr(code) if icon_font() else fallback
+
+
+G = _Glyphs()
 
 # ── Rozmiary / odstępy ──
 PAD_XS, PAD_SM, PAD_MD, PAD_LG, PAD_XL, PAD_XXL = 4, 8, 12, 16, 24, 32
 RADIUS, RADIUS_SM = 10, 6
 CTRL_H = 38
+
+
+def _glyph_rule(size: int, *selectors: str) -> str:
+    """Nadaje wskazanym przyciskom rodzinę fontu ikon (pusto, gdy go nie ma).
+
+    Rodzina MUSI iść przez QSS: reguła `*` na początku arkusza ustawia
+    font-family całej aplikacji i wygrywa z `widget.setFont()`, więc znak
+    z obszaru prywatnego wyszedłby pustym prostokątem.
+
+    Kolor ikony zostaje przy QSS, więc przełączenie motywu przemalowuje ją
+    razem z resztą — inaczej niż ikona wklejona jako gotowa bitmapa.
+    """
+    family = icon_font()
+    if not family:
+        return ""
+    return (", ".join(selectors)
+            + f' {{ font-family: "{family}"; font-size: {size}px; }}\n')
 
 
 def stylesheet() -> str:
@@ -285,6 +404,9 @@ QLabel#StatusPctDone {{ font-size: {F.SIZE_XS}px; font-weight: 700; color: {C.SU
 
 /* Historia */
 QLabel#LessonNumber {{ font-size: {F.SIZE_MD}px; font-weight: 700; color: {C.PRIMARY}; }}
+QLabel#LessonNumberExpired {{
+    font-size: {F.SIZE_MD}px; font-weight: 700; color: {C.LESSON_EXPIRED};
+}}
 QLabel#NoTopic      {{ font-size: {F.SIZE_SM}px; font-weight: 700; color: {C.TEXT_MUTED}; }}
 QLabel#EmptyState   {{
     font-size: {F.SIZE_XS}px; color: {C.TEXT_MUTED}; padding: {PAD_XXL}px;
@@ -405,12 +527,33 @@ QPushButton#IconDanger {{
     font-weight: 700;
 }}
 QPushButton#IconDanger:hover {{ background: {C.ERROR}; color: #fff; border-color: {C.ERROR}; }}
+/* Wyłączone „✕" (ścieżka domyślna) musi wyglądać na wyłączone — bez tej reguły
+   wygrywa czerwień z selektora po nazwie i przycisk kusi kliknięciem. */
+QPushButton#IconDanger:disabled {{
+    background: transparent; color: {C.TEXT_MUTED};
+    border-color: {C.DISABLED_BORDER};
+}}
 
 QPushButton#CardAction {{
     background: {C.BG}; border: 1px solid {C.BORDER}; color: {C.TEXT};
     min-height: 30px; border-radius: {RADIUS_SM}px;
 }}
 QPushButton#CardAction:hover {{ background: {C.BG_HOVER}; }}
+
+/* Przełącznik filtra — wciśnięty świeci kolorem akcji, żeby po wejściu na
+   zakładkę było widać, że część lekcji jest schowana. */
+QPushButton#FilterToggle {{
+    background: {C.BG}; border: 1px solid {C.BORDER}; color: {C.TEXT_SECONDARY};
+    min-height: 30px; border-radius: {RADIUS_SM}px; padding: 0 12px;
+}}
+QPushButton#FilterToggle:hover {{ background: {C.BG_HOVER}; color: {C.TEXT}; }}
+QPushButton#FilterToggle:checked {{
+    background: {C.PRIMARY_DARK}; border-color: {C.PRIMARY_DARK};
+    color: {C.TEXT_ON_PRIMARY}; font-weight: 700;
+}}
+QPushButton#FilterToggle:checked:hover {{
+    background: {C.PRIMARY}; border-color: {C.PRIMARY};
+}}
 
 QPushButton#UrlChip {{
     background: {C.BG_INPUT}; border: 1px solid {C.BORDER};
@@ -506,4 +649,47 @@ QScrollBar::handle:horizontal {{ background: {C.SCROLL}; border-radius: 5px; min
 QDialog {{ background: {C.BG_SURFACE}; }}
 QLabel#DialogTitle {{ font-size: {F.SIZE_MD}px; font-weight: 700; }}
 QLabel#DialogHint {{ font-size: {F.SIZE_XS}px; color: {C.TEXT_MUTED}; font-style: italic; }}
+
+/* ── Ścieżki zapisu ── */
+QFrame#PathRow {{ background: transparent; }}
+/* Ścieżka domyślna wyróżnia się pogrubieniem — stąd selektor po właściwości,
+   a nie po nazwie: nazwa pola jest zajęta przez obramowanie błędu. */
+QLineEdit[isDefault="true"] {{ font-weight: 700; }}
+QLabel#DefaultBadge, QLabel#BadgeGlyph {{
+    color: {C.DEFAULT_MARK}; font-weight: 700; background: transparent;
+}}
+QLabel#DefaultBadge {{ font-size: {F.SIZE_XS}px; }}
+QPushButton#PinBtn {{
+    background: transparent; border: 1px solid {C.BORDER};
+    color: {C.TEXT_MUTED}; border-radius: {RADIUS_SM}px; padding: 0;
+}}
+QPushButton#PinBtn:hover {{
+    background: {C.BG_HOVER}; color: {C.DEFAULT_MARK};
+    border-color: {C.DEFAULT_MARK};
+}}
+
+/* ── Przyciski z samą ikoną (font ikon Windows) ── */
+{_glyph_rule(F.SIZE_MD, 'QPushButton#IconDanger', 'QPushButton#NavArrow',
+             'QPushButton#ThemeToggle', 'QPushButton#PinBtn',
+             'QPushButton#BrowseBtn', 'QLabel#Glyph', 'QLabel#BadgeGlyph')}
+{_glyph_rule(F.SIZE_LG, 'QLabel#GlyphLg', 'QLabel#AppGlyph')}
+{_glyph_rule(F.SIZE_XL, 'QLabel#GlyphXl', 'QLabel#AppGlyphXl')}
+QLabel#Glyph, QLabel#GlyphLg, QLabel#GlyphXl {{ background: transparent; }}
+/* Znak przy nazwie aplikacji — ten sam co na ikonie, w kolorze marki. */
+QLabel#AppGlyph, QLabel#AppGlyphXl {{
+    color: {C.PRIMARY}; background: transparent;
+}}
+QPushButton#NavArrow {{
+    background: {C.BG}; border: 1px solid {C.BORDER}; color: {C.TEXT};
+    min-height: 30px; border-radius: {RADIUS_SM}px; padding: 0;
+}}
+QPushButton#NavArrow:hover {{ background: {C.BG_HOVER}; color: {C.PRIMARY}; }}
+QPushButton#NavArrow:disabled {{
+    color: {C.TEXT_MUTED}; border-color: {C.DISABLED_BORDER};
+}}
+QPushButton#BrowseBtn {{
+    background: {C.BG}; border: 1px solid {C.BORDER}; color: {C.TEXT_SECONDARY};
+    border-radius: {RADIUS_SM}px; padding: 0;
+}}
+QPushButton#BrowseBtn:hover {{ background: {C.BG_HOVER}; color: {C.PRIMARY}; }}
 """

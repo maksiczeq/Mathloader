@@ -17,9 +17,16 @@ Interfejs: PySide6 (Qt 6). Strony renderuje dołączona przeglądarka Chromium
   lekcji, zanim cokolwiek trafi na dysk.
 - **Dowolna liczba kopii zapisu** (dysk lokalny, pendrive, dysk sieciowy);
   aplikacja na bieżąco sprawdza, czy ścieżki są osiągalne, i ostrzega, gdy nie są.
+- **Domyślna ścieżka zapisu** — pierwsza na liście, pogrubiona, podpisana
+  „Domyślna” i oddzielona kreską od pozostałych kopii. To w niej historia szuka
+  folderu lekcji po kliknięciu „Otwórz”, więc odłączony pendrive dalej w kolejce
+  niczego nie psuje. Pinezka przy dowolnej ścieżce ustawia ją domyślną jednym
+  kliknięciem; samej domyślnej nie da się usunąć, dopóki nie przypniesz innej.
 - **Własne formaty nazw** folderów i plików z podglądem na żywo
   (`{nr}`, `{temat}`, `{data}`, `{img}`).
-- **Historia pobrań** z automatyczną numeracją lekcji i wykrywaniem duplikatów.
+- **Historia pobrań** z automatyczną numeracją lekcji i wykrywaniem duplikatów;
+  lekcje z wygasłym linkiem są przygaszone, a przełącznik „Ukryj wygasłe”
+  chowa je z listy (domyślnie wyłączony).
 - **Ciemny i jasny motyw** — przełącznik w prawym górnym rogu, z płynnym
   przejściem; wybór zostaje zapamiętany (pierwsze uruchomienie: ciemny).
 - **Powiadomienie o nowej wersji** — systemowe okno Windows przy starcie,

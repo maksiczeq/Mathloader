@@ -82,7 +82,10 @@ def fade_in(widget: QWidget, *, ms: int = BASE, delay: int = 0,
         a.setEasingCurve(EASE_OUT)
 
         def _finish() -> None:
-            widget.setGraphicsEffect(None)
+            # Tylko własny efekt: w międzyczasie widget mógł dostać inny
+            # (np. poświatę domyślnej ścieżki) i zdjęcie go byłoby cudzą stratą.
+            if widget.graphicsEffect() is eff:
+                widget.setGraphicsEffect(None)
             if on_done:
                 on_done()
 
@@ -113,7 +116,8 @@ def fade_out(widget: QWidget, *, ms: int = FAST, hide: bool = True,
     def _finish() -> None:
         if hide:
             widget.hide()
-        widget.setGraphicsEffect(None)
+        if widget.graphicsEffect() is eff:
+            widget.setGraphicsEffect(None)
         if on_done:
             on_done()
 
@@ -329,13 +333,25 @@ def fade_in_window(window: QWidget, *, ms: int = 260) -> None:
 
 def stagger(items, action: Callable[[object, int], None], *,
             first: int = 0, step: int = 45, cap: int = 12) -> None:
-    """Uruchamia action(item, i) z rosnącym opóźnieniem (kaskadowe wejście)."""
+    """Uruchamia action(item, i) z rosnącym opóźnieniem (kaskadowe wejście).
+
+    Opóźnione wywołania przeżywają widget, do którego dopisują (zamknięcie okna
+    w trakcie kaskady, przełączenie stanu strony). Sięgnięcie po skasowany po
+    stronie C++ obiekt kończy się `RuntimeError`, więc go tu przechwytujemy —
+    dla niedokończonej animacji wejścia to właściwa reakcja.
+    """
+    def _run(item, idx) -> None:
+        try:
+            action(item, idx)
+        except RuntimeError:
+            pass
+
     for i, item in enumerate(items):
         delay = first + min(i, cap) * step
         if delay <= 0:
-            action(item, i)
+            _run(item, i)
         else:
-            QTimer.singleShot(delay, lambda it=item, ix=i: action(it, ix))
+            QTimer.singleShot(delay, lambda it=item, ix=i: _run(it, ix))
 
 
 def pop_in(widget: QWidget, *, ms: int = BASE, delay: int = 0) -> None:
@@ -365,7 +381,8 @@ def pop_in(widget: QWidget, *, ms: int = BASE, delay: int = 0) -> None:
 
         def _finish() -> None:
             widget.setMaximumHeight(16777215)
-            widget.setGraphicsEffect(None)
+            if widget.graphicsEffect() is eff:
+                widget.setGraphicsEffect(None)
 
         grp.finished.connect(_finish)
         _keep(widget, grp, "_pop_anim")

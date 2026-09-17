@@ -33,6 +33,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "skip_version": "",
     # Motyw: pierwsze uruchomienie zawsze ciemne, potem ostatni wybór.
     "theme": "dark",
+    # Historia: czy chować lekcje z wygasłym linkiem (domyślnie widoczne).
+    "hide_expired": False,
 }
 
 # Dostępne placeholdery z opisami
@@ -109,6 +111,18 @@ class AppConfig:
         self._data["save_paths"] = [str(p) for p in value]
 
     @property
+    def default_save_path(self) -> Path | None:
+        """Pierwsza ścieżka z listy — tam zaglądamy najpierw.
+
+        Kolejność ścieżek ustawia użytkownik w Ustawieniach (strzałkami), więc
+        „domyślna" to po prostu ta na górze. Historia otwiera folder lekcji
+        stamtąd, dzięki czemu odłączony pendrive dalej w kolejce nie zmienia
+        tego, gdzie trafia kliknięcie „Otwórz".
+        """
+        paths = self.save_paths
+        return paths[0] if paths else None
+
+    @property
     def folder_format(self) -> str:
         return self._data.get("folder_format", DEFAULT_SETTINGS["folder_format"])
 
@@ -165,6 +179,17 @@ class AppConfig:
     @theme.setter
     def theme(self, value: str) -> None:
         self._data["theme"] = "light" if str(value).lower() == "light" else "dark"
+
+    # ── Historia ──
+
+    @property
+    def hide_expired(self) -> bool:
+        """Czy zakładka „Historia” chowa lekcje z wygasłym linkiem."""
+        return bool(self._data.get("hide_expired", False))
+
+    @hide_expired.setter
+    def hide_expired(self, value: bool) -> None:
+        self._data["hide_expired"] = bool(value)
 
     @property
     def skip_version(self) -> str:

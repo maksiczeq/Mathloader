@@ -79,6 +79,11 @@ CO WARTO SPRAWDZIC
 [ ] Obrazy faktycznie trafily do wskazanego folderu
 [ ] Zakladka "Historia" pokazuje pobrana lekcje
 [ ] Przycisk "Otworz" w historii otwiera wlasciwy folder
+    (przy kilku sciezkach - ten z domyslnej, czyli pierwszej na liscie)
+[ ] Ustawienia: klik pinezki ustawia sciezke domyslna (wskakuje
+    na gore, jest pogrubiona i podpisana "Domyslna")
+[ ] Sciezki domyslnej nie da sie usunac; pozostale - owszem
+[ ] Historia: przycisk "Ukryj wygasle" chowa stare lekcje
 [ ] Kopiowanie linku z historii dziala
 [ ] Podglad obrazow przewija sie strzalkami
 [ ] Zakladka "Info" pokazuje licencje MIT
