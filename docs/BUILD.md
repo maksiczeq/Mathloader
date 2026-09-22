@@ -110,6 +110,9 @@ inaczej nie wykryjesz brakujących zależności.
 - [ ] Historia: przełącznik „Ukryj wygasłe” chowa lekcje starsze niż tydzień
 - [ ] Zakładka Info pokazuje licencję MIT, autora i **aktualny numer wersji**
 - [ ] Info → *Sprawdź aktualizacje* odpowiada oknem systemowym (a nie ciszą)
+- [ ] Aktualizacja: „Pobierz i zainstaluj” pokazuje pasek pobierania,
+      zamyka aplikację i podnosi ją w nowej wersji z potwierdzeniem w rogu
+- [ ] Aktualizacja odmawia startu w trakcie pobierania lekcji
 - [ ] Okna **nie da się rozciągnąć** myszką ani przyciągnąć do krawędzi (Win+↑),
       ale samo rośnie przy wysokim podglądzie i wraca po zamknięciu
 - [ ] Deinstalacja pyta o usunięcie ustawień; obrazy lekcji zostają na dysku

@@ -216,6 +216,22 @@ if ($SkipInstaller) {
     }
 }
 
+# ---- 7. Sumy kontrolne ----------------------------------------------------
+# Aplikacja pobiera aktualizacje sama i URUCHAMIA pobrany plik, wiec musi miec
+# jak sprawdzic, ze to dokladnie ten plik, ktory opublikowalismy. Pliki .sha256
+# trzeba wrzucic do wydania razem z artefaktami - bez nich aktualizacja dziala,
+# ale opiera sie juz tylko na rozmiarze.
+Say "Sumy kontrolne"
+Get-ChildItem $OutDir -File |
+    Where-Object { $_.Extension -eq '.exe' -or $_.Extension -eq '.zip' } |
+    ForEach-Object {
+    $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
+    $out  = "$($_.FullName).sha256"
+    # Format jak u sha256sum: "<suma>  <nazwa>" - tak czyta go updater.py.
+    Set-Content -Path $out -Value "$hash  $($_.Name)" -Encoding ascii -NoNewline
+    Ok "$($_.Name).sha256"
+}
+
 # ---- Podsumowanie ---------------------------------------------------------
 Say "Gotowe"
 Get-ChildItem $OutDir -File -ErrorAction SilentlyContinue | ForEach-Object {

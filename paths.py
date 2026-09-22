@@ -152,3 +152,74 @@ def setup_playwright_env() -> None:
         if candidate.is_dir():
             os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(candidate)
             return
+
+
+# ── Aktualizacje ────────────────────────────────────────────────────────────
+#
+# Identyfikator z installer.iss ([Setup] AppId) + sufiks „_is1", którym Inno
+# Setup oznacza swój wpis w rejestrze. Po nim rozpoznajemy, czy aplikację
+# zainstalowano dla jednego użytkownika, czy dla całego komputera — bo od tego
+# zależy, z jakim przełącznikiem wolno uruchomić cichą aktualizację.
+UNINSTALL_KEY = r"{7B3F2C1A-9E4D-4A8B-B6F0-2D5C8E1A7F93}_is1"
+_UNINSTALL_PATH = r"Software\Microsoft\Windows\CurrentVersion\Uninstall"
+
+UPDATE_MAX_AGE_DAYS = 7
+
+
+def update_cache_dir() -> Path:
+    """Katalog na pobierane instalatory — w TEMP, bo to dane jednorazowe.
+
+    Świadomie NIE w katalogu danych: przerwane pobranie 150 MB nie ma prawa
+    zostać na stałe obok historii lekcji.
+    """
+    import tempfile
+    d = Path(tempfile.gettempdir()) / f"{APP_NAME}-update"
+    try:
+        d.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
+    return d
+
+
+def cleanup_update_cache(keep: Optional[Path] = None) -> None:
+    """Kasuje stare pobrania (starsze niż tydzień), zostawiając `keep`."""
+    cutoff = datetime.now().timestamp() - UPDATE_MAX_AGE_DAYS * 86400
+    try:
+        entries = list(update_cache_dir().iterdir())
+    except OSError:
+        return
+    for item in entries:
+        if keep is not None and item == keep:
+            continue
+        try:
+            if item.is_file() and item.stat().st_mtime < cutoff:
+                item.unlink()
+        except OSError:
+            pass
+
+
+def installed_scope() -> str:
+    """Jak zainstalowano aplikację: „user", „machine" albo "" (nie wiadomo).
+
+    Czytamy wpis deinstalacji zostawiony przez instalator — to jedyne pewne
+    źródło. Sam katalog nie wystarcza: użytkownik mógł wskazać dowolny inny.
+    """
+    if sys.platform != "win32":
+        return ""
+    try:
+        import winreg
+    except ImportError:
+        return ""
+    for root, scope in ((winreg.HKEY_CURRENT_USER, "user"),
+                        (winreg.HKEY_LOCAL_MACHINE, "machine")):
+        try:
+            with winreg.OpenKey(root, rf"{_UNINSTALL_PATH}\{UNINSTALL_KEY}"):
+                return scope
+        except OSError:
+            continue
+    return ""
+
+
+def is_installed() -> bool:
+    """True, gdy aplikacja przeszła przez instalator (a nie ZIP/kod źródłowy)."""
+    return is_frozen() and not is_portable() and bool(installed_scope())

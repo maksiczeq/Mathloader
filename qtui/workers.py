@@ -12,13 +12,18 @@ sprzątnie go w trakcie).
 from __future__ import annotations
 
 import threading
+from pathlib import Path
+from typing import Optional
 
 from PySide6.QtCore import QObject, Signal
 
 from downloader import (
     LessonResult, Phase1Result, download_image, run_phase1, run_phase2,
 )
-from updater import find_update
+from updater import (
+    DownloadCancelled, UpdateError, download_asset, fetch_checksum,
+    find_update,
+)
 
 
 class _Job(QObject):
@@ -102,10 +107,53 @@ class UpdateJob(_Job):
 
     done = Signal(object)             # UpdateInfo | None (None = brak nowszej)
 
-    def __init__(self, current_version: str):
+    def __init__(self, current_version: str, *, portable: bool = False):
         super().__init__()
         self._current = current_version
+        self._portable = portable
 
     def _run(self) -> None:
         # UpdateError leci do `failed` przez _safe_run w klasie bazowej.
-        self.done.emit(find_update(self._current))
+        self.done.emit(find_update(self._current, portable=self._portable))
+
+
+class DownloadUpdateJob(_Job):
+    """Ściąganie instalatora nowej wersji (~150 MB) poza wątkiem GUI."""
+
+    progress = Signal(int, int)       # pobrane, całość (bajty)
+    done = Signal(object)             # Path do pliku albo None przy anulowaniu
+
+    def __init__(self, url: str, dest: Path, *, checksum_url: str = "",
+                 expected_size: int = 0):
+        super().__init__()
+        self._url = url
+        self._dest = dest
+        self._checksum_url = checksum_url
+        self._size = expected_size
+        self._cancel = threading.Event()
+
+    def cancel(self) -> None:
+        """Prosi wątek o przerwanie; plik `.part` zostaje do wznowienia."""
+        self._cancel.set()
+
+    def _run(self) -> None:
+        # Suma kontrolna leci tym samym wątkiem co pobieranie: to zapytanie
+        # sieciowe i przy zerwanym łączu potrafi wisieć kilka sekund, a wątek
+        # GUI musi w tym czasie odrysowywać pasek postępu.
+        try:
+            expected = fetch_checksum(self._checksum_url)
+        except UpdateError:
+            expected = ""             # brak sumy nie blokuje aktualizacji
+
+        try:
+            path = download_asset(
+                self._url, self._dest,
+                on_progress=lambda done, total: self.progress.emit(done, total),
+                should_cancel=self._cancel.is_set,
+                expected_size=self._size,
+                expected_sha256=expected,
+            )
+        except DownloadCancelled:
+            self.done.emit(None)      # anulowanie to nie błąd
+            return
+        self.done.emit(path)

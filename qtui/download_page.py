@@ -299,6 +299,14 @@ class DownloadPage(QWidget):
 
     # ────────────────────────────── stany
 
+    def is_busy(self) -> bool:
+        """True, gdy trwa skanowanie albo pobieranie lekcji.
+
+        Pyta o to aktualizacja: zamyka aplikację, więc nie może wejść w środek
+        pobierania — przerwana lekcja zostawiłaby połowę obrazów na dysku.
+        """
+        return self._state in (self.LOADING, self.DOWNLOADING)
+
     def set_download_enabled(self, enabled: bool) -> None:
         self._download_allowed = enabled
         if self._state in (self.IDLE, self.DONE):

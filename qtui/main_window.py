@@ -21,7 +21,7 @@ from qtui.theme import (
     stylesheet, toggle_theme,
 )
 from qtui.updates import UpdateChecker
-from qtui.widgets import TabBar, glyph_label, hbox, label, vbox
+from qtui.widgets import TabBar, Toast, glyph_label, hbox, label, vbox
 
 TAB_DOWNLOAD, TAB_HISTORY, TAB_SETTINGS, TAB_INFO = 0, 1, 2, 3
 
@@ -76,6 +76,7 @@ class MainWindow(QWidget):
         self.info_page.check_updates_requested.connect(
             lambda: self._updates.check(manual=True))
         self._updates.check_on_start()
+        self._greet_after_update()
 
     # ────────────────────────────── budowa
 
@@ -160,6 +161,10 @@ class MainWindow(QWidget):
         self.stack.addWidget(self.info_page)
         sl.addWidget(self.stack)
         root.addWidget(shell, 1)
+
+    def is_busy(self) -> bool:
+        """Czy aplikacja jest w środku pracy, której nie można przerwać."""
+        return self.download_page.is_busy()
 
     # ────────────────────────────── motyw
 
@@ -353,6 +358,23 @@ class MainWindow(QWidget):
         bad, color = self._problem
         self.settings_page.form.show_detail(color)
         QTimer.singleShot(220, lambda: self.settings_page.form.flash_paths(bad, color))
+
+    # ────────────────────────────── po aktualizacji
+
+    def _greet_after_update(self) -> None:
+        """Instalator startuje aplikację z „--updated <wersja>".
+
+        Bez tego potwierdzenia aktualizacja wygląda jak przypadkowe zamknięcie
+        i ponowne otwarcie programu — użytkownik nie wie, czy się udała.
+        """
+        argv = QApplication.instance().arguments() if QApplication.instance() else []
+        if "--updated" not in argv:
+            return
+        idx = argv.index("--updated")
+        version = argv[idx + 1] if idx + 1 < len(argv) else APP_VERSION
+        QTimer.singleShot(600, lambda: Toast.show_at(
+            self, f"{I.OK}  Zaktualizowano do wersji {version}", C.SUCCESS,
+            ms=4000))
 
     # ────────────────────────────── zdarzenia
 

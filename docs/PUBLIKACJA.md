@@ -154,8 +154,9 @@ działanie.
 .\build.ps1
 ```
 
-Powstaną `dist_installer\Mathloader-3.1.0-Setup.exe` oraz
-`Mathloader-3.1.0-portable.zip`. Szczegóły i rozwiązywanie problemów: [BUILD.md](BUILD.md).
+Powstaną `dist_installer\Mathloader-3.1.0-Setup.exe`,
+`Mathloader-3.1.0-portable.zip` oraz po pliku **`.sha256`** do każdego z nich.
+Szczegóły i rozwiązywanie problemów: [BUILD.md](BUILD.md).
 
 ### 6.3 Wypchnij kod
 
@@ -179,8 +180,14 @@ git push
    - Powiadomienie o nowej wersji
    - Poprawka: podgląd nie migał przy zmianie obrazu
    ```
-5. **Przeciągnij oba pliki** z `dist_installer\` w pole *Attach binaries*
-   (Release przyjmuje pliki do 2 GB — inaczej niż samo repozytorium).
+5. **Przeciągnij wszystkie cztery pliki** z `dist_installer\` w pole *Attach
+   binaries*: instalator, ZIP i dwa pliki `.sha256` (Release przyjmuje pliki do
+   2 GB — inaczej niż samo repozytorium).
+
+   > Pliki `.sha256` są istotne: aplikacja aktualizuje się sama, więc przed
+   > uruchomieniem pobranego instalatora porównuje jego sumę kontrolną z tą
+   > z wydania. Gdy sumy zabraknie, aktualizacja dalej działa, ale opiera się
+   > już tylko na zgodności rozmiaru pliku.
 6. Zostaw odznaczone *Set as a pre-release* — aplikacja pyta o **latest release**
    i wydania wstępne celowo pomija.
 7. *Publish release*.
@@ -192,6 +199,8 @@ i raz wykonasz `gh auth login`):
 gh release create v3.1.0 `
   dist_installer\Mathloader-3.1.0-Setup.exe `
   dist_installer\Mathloader-3.1.0-portable.zip `
+  dist_installer\Mathloader-3.1.0-Setup.exe.sha256 `
+  dist_installer\Mathloader-3.1.0-portable.zip.sha256 `
   --title "Mathloader 3.1.0" `
   --notes "- Okno nie daje się rozciągać`n- Powiadomienie o nowej wersji"
 ```
@@ -202,6 +211,19 @@ Uruchom u siebie **starszą** wersję (np. zainstalowaną z poprzedniego
 instalatora) — po ~2 sekundach od startu wyskoczy systemowe okno
 „Dostępna nowa wersja aplikacji”.
 
+Kliknij **„Pobierz i zainstaluj”**: aplikacja pokaże pasek pobierania, zamknie
+się, a po chwili wstanie już w nowej wersji z potwierdzeniem w rogu. Cały
+przebieg widać potem w logu instalatora:
+
+```powershell
+notepad $env:TEMP\Mathloader-update\instalacja.log
+```
+
+> **Automat działa dopiero od wersji, która go ma.** O sposobie aktualizacji
+> decyduje kod wersji **już zainstalowanej**, więc użytkownicy 3.2.0 dostaną
+> jeszcze raz starą ścieżkę przez przeglądarkę. Automatyczne przejście zadziała
+> dopiero z 3.2.1 na 3.2.2 — warto to napisać w opisie wydania.
+
 ---
 
 ## 7. Zasady, o które łatwo się potknąć
@@ -211,7 +233,8 @@ instalatora) — po ~2 sekundach od startu wyskoczy systemowe okno
 | Tag wydania = `APP_VERSION` (z „v” lub bez — obie formy działają) | Wersja 3.1.0 z tagiem `v3.0.9` nie zostanie uznana za nowszą i nikt nie dostanie powiadomienia |
 | Repozytorium publiczne | API GitHuba zwróci 404, sprawdzanie aktualizacji milczy |
 | Instalator w **Release**, nie w repo | Push z plikiem > 100 MB zostanie odrzucony |
-| Nazwa pliku kończy się na `Setup.exe` | Updater wybiera do pobrania: instalator → inny `.exe` → `.zip`; przy braku plików otwiera stronę wydania |
+| Nazwa pliku kończy się na `Setup.exe` | Wersja instalowana szuka instalatora, portable — ZIP-a; przy braku pasującego pliku otwiera stronę wydania |
+| Dołącz pliki `.sha256` | Bez nich aplikacja nie ma jak sprawdzić, czy pobrała dokładnie ten plik, który wydałeś |
 | Nie zaznaczaj *pre-release* dla zwykłych wydań | `releases/latest` je pomija — wydanie będzie niewidoczne dla aplikacji |
 | Najpierw `git push`, potem Release | Tag wskaże kod, którego nie ma jeszcze na GitHubie |
 

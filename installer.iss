@@ -35,8 +35,17 @@ DisableProgramGroupPage=yes
 AllowNoIcons=yes
 
 ; Użytkownik sam wybiera: wszyscy (UAC) czy tylko ja (bez UAC).
+; „commandline" dochodzi ze względu na automatyczną aktualizację: aplikacja
+; przekazuje /CURRENTUSER albo /ALLUSERS, żeby nowa wersja trafiła dokładnie
+; tam, gdzie siedzi stara — bez tego cicha instalacja mogłaby wylądować obok.
 PrivilegesRequired=lowest
-PrivilegesRequiredOverridesAllowed=dialog
+PrivilegesRequiredOverridesAllowed=commandline dialog
+
+; Aktualizacja bez zamykania aplikacji „na piechotę": Inno pyta Restart Managera,
+; co trzyma pliki, i zamyka to samo. Restart zostawiamy sobie ([Run] niżej) —
+; inaczej przy aktualizacji z aplikacji Mathloader wstałby dwa razy.
+CloseApplications=yes
+RestartApplications=no
 
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
@@ -73,11 +82,64 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; \
     Tasks: desktopicon
 
 [Run]
+; Zwykła instalacja: pole „uruchom teraz" na ostatniej stronie kreatora.
 Filename: "{app}\{#AppExeName}"; \
     Description: "{cm:LaunchProgram,{#StringChange(AppName, '&', '&&')}}"; \
     Flags: nowait postinstall skipifsilent
 
+; Aktualizacja z poziomu aplikacji (/RESTARTAPP=1): podnieś ją z powrotem.
+; `runasoriginaluser` jest tu istotne — przy instalacji dla wszystkich
+; instalator działa z prawami administratora i bez tego Mathloader wstałby
+; na koncie admina, z cudzymi ustawieniami i historią.
+Filename: "{app}\{#AppExeName}"; Parameters: "--updated {#AppVersion}"; \
+    Flags: nowait runasoriginaluser; Check: WantsRestart
+
 [Code]
+const
+  SYNCHRONIZE = $00100000;
+
+function OpenProcess(dwDesiredAccess: DWORD; bInheritHandle: BOOL;
+                     dwProcessId: DWORD): THandle;
+  external 'OpenProcess@kernel32.dll stdcall';
+function WaitForSingleObject(hHandle: THandle; dwMilliseconds: DWORD): DWORD;
+  external 'WaitForSingleObject@kernel32.dll stdcall';
+function CloseHandle(hObject: THandle): BOOL;
+  external 'CloseHandle@kernel32.dll stdcall';
+
+// Czy aplikacja ma wstać po instalacji. Ustawia to wyłącznie sam Mathloader,
+// przekazując /RESTARTAPP=1 przy aktualizacji — przy ręcznej instalacji
+// zostaje zwykłe pole wyboru na ostatniej stronie kreatora.
+function WantsRestart(): Boolean;
+begin
+  Result := ExpandConstant('{param:RESTARTAPP|0}') = '1';
+end;
+
+// Aktualizacja leci z wnętrza działającej aplikacji: ta przekazuje swój PID
+// i zamyka się natychmiast po uruchomieniu instalatora. Zanim ruszymy z
+// podmianą plików, czekamy, aż proces naprawdę zniknie — Windows nie pozwala
+// nadpisać otwartego .exe, a wyścig o ułamek sekundy kończyłby się błędem.
+procedure WaitForCaller();
+var
+  Pid: Integer;
+  Handle: THandle;
+begin
+  Pid := StrToIntDef(ExpandConstant('{param:WAITPID|0}'), 0);
+  if Pid <= 0 then
+    Exit;
+  Handle := OpenProcess(SYNCHRONIZE, False, Pid);
+  if Handle <> 0 then
+  begin
+    WaitForSingleObject(Handle, 20000);      // 20 s to aż nadto
+    CloseHandle(Handle);
+  end;
+end;
+
+function InitializeSetup(): Boolean;
+begin
+  WaitForCaller();
+  Result := True;
+end;
+
 // Przy DEINSTALACJI (nie przy aktualizacji!) zapytaj, czy skasować ustawienia
 // i historię lekcji. Aktualizacja nadpisuje wyłącznie zawartość {app} —
 // dane w {userappdata}\Mathloader zostają nietknięte.

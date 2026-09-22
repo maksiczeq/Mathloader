@@ -29,8 +29,11 @@ Interfejs: PySide6 (Qt 6). Strony renderuje dołączona przeglądarka Chromium
   chowa je z listy (domyślnie wyłączony).
 - **Ciemny i jasny motyw** — przełącznik w prawym górnym rogu, z płynnym
   przejściem; wybór zostaje zapamiętany (pierwsze uruchomienie: ciemny).
-- **Powiadomienie o nowej wersji** — systemowe okno Windows przy starcie,
-  gdy na GitHubie pojawi się nowsze wydanie.
+- **Automatyczna aktualizacja** — systemowe okno Windows przy starcie, gdy na
+  GitHubie pojawi się nowsze wydanie. Po kliknięciu „Pobierz i zainstaluj”
+  aplikacja sama ściąga instalator (z kontrolą sumy SHA-256), zamyka się,
+  instaluje aktualizację i wraca gotowa do pracy. Ustawienia i historia zostają
+  nietknięte. Wersję portable aktualizuje się ręcznie.
 
 ---
 
