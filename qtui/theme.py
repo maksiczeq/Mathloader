@@ -630,6 +630,34 @@ QComboBox QAbstractItemView {{
     outline: none; padding: 4px;
 }}
 
+/* ── Pole wyboru ── */
+/* Wskaźnik rysujemy sami: styl Fusion bierze go z palety systemowej, więc
+   w ciemnym motywie zostawał jasnym kwadratem odbijającym od karty. */
+QCheckBox {{
+    color: {C.TEXT_SECONDARY}; font-size: {F.SIZE_XS}px;
+    spacing: 8px; background: transparent;
+}}
+QCheckBox:hover {{ color: {C.TEXT}; }}
+QCheckBox:checked {{ color: {C.TEXT}; font-weight: 700; }}
+QCheckBox:disabled {{ color: {C.TEXT_MUTED}; }}
+QCheckBox::indicator {{
+    width: 15px; height: 15px;
+    background: {C.BG_INPUT}; border: 1px solid {C.BORDER};
+    border-radius: 4px;
+}}
+QCheckBox::indicator:hover {{ border-color: {C.PRIMARY}; }}
+QCheckBox::indicator:checked {{
+    background: {C.PRIMARY_DARK}; border: 4px solid {C.BG_INPUT};
+    border-radius: 5px;
+}}
+QCheckBox::indicator:checked:hover {{ background: {C.PRIMARY}; }}
+QCheckBox::indicator:disabled {{
+    background: {C.INPUT_DISABLED_BG}; border-color: {C.DISABLED_BORDER};
+}}
+QCheckBox::indicator:checked:disabled {{
+    background: {C.PRIMARY_DISABLED_BG}; border: 4px solid {C.INPUT_DISABLED_BG};
+}}
+
 /* ── Scroll ── */
 QScrollArea {{ background: transparent; border: none; }}
 QScrollArea > QWidget > QWidget {{ background: transparent; }}

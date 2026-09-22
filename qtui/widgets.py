@@ -14,6 +14,20 @@ from qtui import anim
 from qtui.theme import C, G, I, PAD_MD, PAD_SM, PAD_XL, RADIUS, icon_font
 
 
+def plural(count: int, one: str, few: str, many: str) -> str:
+    """Polska odmiana rzeczownika: 1 tablica, 2 tablice, 5 tablic."""
+    if count == 1:
+        return one
+    if 2 <= count % 10 <= 4 and not 12 <= count % 100 <= 14:
+        return few
+    return many
+
+
+def boards_word(count: int) -> str:
+    """Odmiana słowa „tablica" — używana w historii i w podsumowaniach."""
+    return plural(count, "tablica", "tablice", "tablic")
+
+
 def card(parent: Optional[QWidget] = None, *, surface: bool = False) -> QFrame:
     f = QFrame(parent)
     f.setObjectName("Surface" if surface else "Card")

@@ -14,20 +14,25 @@ from typing import Optional
 from PySide6.QtCore import QByteArray, QPropertyAnimation, Qt, QTimer, Signal
 from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
-    QFrame, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit, QProgressBar,
-    QPushButton, QSizePolicy, QVBoxLayout, QWidget,
+    QCheckBox, QComboBox, QDialog, QFrame, QHBoxLayout, QLabel, QLineEdit,
+    QPlainTextEdit, QProgressBar, QPushButton, QSizePolicy, QVBoxLayout,
+    QWidget,
 )
 
 from config import AppConfig
 from downloader import (
-    SUPPORTED_URL_HINT, LessonResult, Phase1Result, find_existing_lesson,
-    is_supported_url, load_history, sanitize_filename,
+    SUPPORTED_URL_HINT, LessonResult, Phase1Result, appended_count,
+    find_existing_lesson, is_supported_url, lesson_folders, load_history,
+    sanitize_filename,
 )
 from qtui import anim, workers
 from qtui.theme import (
     C, G, I, PAD_LG, PAD_MD, PAD_SM, PAD_XL, RADIUS_SM,
 )
-from qtui.widgets import card, hbox, label, set_glyph, vbox
+from qtui.widgets import (
+    BaseDialog, Toast, boards_word, card, hbox, label, plural, restyle,
+    set_glyph, vbox,
+)
 
 PREVIEW_MIN_H = 220
 PREVIEW_MAX_H = 820
@@ -35,11 +40,106 @@ CONSOLE_COLLAPSED = 58
 CONSOLE_EXPANDED = 300
 STATUS_AUTOHIDE_MS = 20000
 
+# Napisy przycisków w stanie spoczynku — używane też przy cofaniu pytania
+# o duplikat, więc muszą być w jednym miejscu.
+DOWNLOAD_TEXT = "  Pobierz"
+NO_TOPIC = ("", "Bez_tematu", "*Bez Tematu*", "Bez Tematu")
+
+
+def lesson_caption(lesson: dict) -> str:
+    """Podpis lekcji: „#7 — WIELOMIANY”, z zapasem na lekcje bez tematu."""
+    topic = lesson.get("topic", "")
+    nice = "bez tematu" if topic in NO_TOPIC else topic
+    return f"#{lesson.get('number', '?')} — {nice}"
+
+
+class LessonPickerDialog(BaseDialog):
+    """Wybór lekcji, do której dopisujemy tablice z bieżącego linku."""
+
+    def __init__(self, parent: Optional[QWidget], lessons: list[dict],
+                 config: AppConfig):
+        super().__init__(parent, "Dopisz do wcześniejszej lekcji", width=560)
+        self._lessons = lessons
+        self._config = config
+
+        lay = vbox(self, m=PAD_XL, s=PAD_MD)
+        lay.addWidget(label("Do której lekcji dopisać tablice?",
+                            "DialogTitle", wrap=True))
+        lay.addWidget(label(
+            "Obrazy z wklejonego linku trafią do folderu wybranej lekcji "
+            "i dostaną dalsze numery. Nowa lekcja nie powstanie, a licznik "
+            "kolejnych numerów zostanie nietknięty.", "Hint", wrap=True))
+
+        self.combo = QComboBox(self)
+        for lesson in lessons:
+            date = (lesson.get("created_at")
+                    or lesson.get("downloaded_at", ""))[:10]
+            added = appended_count(lesson)
+            extra = f"   (+{added} {boards_word(added)})" if added else ""
+            self.combo.addItem(f"{lesson_caption(lesson)}   •   {date}{extra}")
+        self.combo.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.combo.currentIndexChanged.connect(self._sync)
+        lay.addWidget(self.combo)
+
+        self.folder_label = label("", "Muted", wrap=True)
+        lay.addWidget(self.folder_label)
+        lay.addSpacing(PAD_SM)
+
+        row = QWidget(self)
+        rl = hbox(row, s=PAD_MD)
+        self.ok = QPushButton("  Wybierz lekcję", row)
+        self.ok.setObjectName("Primary")
+        set_glyph(self.ok, "CHECK")
+        self.ok.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.ok.clicked.connect(self.accept)
+
+        no = QPushButton("Anuluj", row)
+        no.setObjectName("CardAction")
+        no.setMinimumHeight(38)
+        no.setCursor(Qt.CursorShape.PointingHandCursor)
+        no.clicked.connect(self.reject)
+
+        rl.addWidget(self.ok, 1)
+        rl.addWidget(no, 1)
+        lay.addWidget(row)
+
+        self._sync()
+
+    def selected(self) -> Optional[dict]:
+        idx = self.combo.currentIndex()
+        return self._lessons[idx] if 0 <= idx < len(self._lessons) else None
+
+    def _sync(self) -> None:
+        """Podpowiada folder docelowy — i blokuje wybór, gdy go nie ma.
+
+        Dopisanie do lekcji, której folder zniknął (skasowany albo na
+        odłączonym pendrivie), skończyłoby się błędem dopiero po całym
+        skanowaniu strony. Lepiej powiedzieć to od razu.
+        """
+        lesson = self.selected()
+        folders = lesson_folders(lesson, self._config) if lesson else []
+        existing = [f for f in folders if f.exists()]
+        if existing:
+            more = len(existing) - 1
+            extra = (f"   (+{more} {plural(more, 'kopia', 'kopie', 'kopii')})"
+                     if more else "")
+            self.folder_label.setText(f"{I.FOLDER}  {existing[0]}{extra}")
+            self.folder_label.setObjectName("Muted")
+        else:
+            self.folder_label.setText(
+                f"{I.WARN}  Nie znaleziono folderu tej lekcji. Sprawdź, czy "
+                f"dysk jest podłączony, a folder nie został przeniesiony.")
+            self.folder_label.setObjectName("Warn")
+        self.ok.setEnabled(bool(existing))
+        restyle(self.folder_label)
+
 
 class DownloadPage(QWidget):
     """Główny widok pracy: URL → podgląd → pobieranie."""
 
     IDLE, LOADING, REVIEW, DOWNLOADING, DONE = range(5)
+
+    APPEND_TEXT = "Dopisz tablice do wcześniejszej lekcji"
 
     request_height = Signal(int)     # sugerowana wysokość okna
     history_changed = Signal()
@@ -51,7 +151,11 @@ class DownloadPage(QWidget):
         self._phase1: Optional[Phase1Result] = None
         self._current_url = ""
         self._download_allowed = True
-        self._awaiting_dup = False
+        # Lekcja z historii, do której dopisujemy tablice (None = nowa lekcja).
+        self._append_target: Optional[dict] = None
+        # (tryb, URL) czekające na potwierdzenie duplikatu — drugie kliknięcie
+        # w TEN SAM przycisk z tym samym adresem oznacza „wiem, pobierz mimo to”.
+        self._pending: Optional[tuple[str, str]] = None
         self._preview_bytes: dict[int, bytes] = {}
         self._preview_idx = 0
         self._console_expanded = False
@@ -93,6 +197,20 @@ class DownloadPage(QWidget):
         self.download_btn.clicked.connect(self._on_download)
         rl.addWidget(self.download_btn)
         ucl.addWidget(row)
+
+        # Tryb pracy, nie druga akcja: zaznaczone = „Pobierz” dokłada tablice
+        # do wskazanej lekcji, zamiast zakładać nową.
+        self.append_check = QCheckBox(self.APPEND_TEXT, url_card)
+        self.append_check.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.append_check.setToolTip(
+            "Obrazy z tego linku trafią do folderu lekcji pobranej wcześniej "
+            "— bez nowego numeru i bez ręcznego przestawiania licznika.")
+        self.append_check.toggled.connect(self._on_append_toggled)
+        ucl.addWidget(self.append_check)
+
+        self.append_note = label("", "Accent", wrap=True)
+        self.append_note.hide()
+        ucl.addWidget(self.append_note)
 
         self.dup_label = label("", "Warn", wrap=True)
         self.dup_label.hide()
@@ -160,7 +278,8 @@ class DownloadPage(QWidget):
         self.review_card.setSizePolicy(QSizePolicy.Policy.Expanding,
                                        QSizePolicy.Policy.Expanding)
         lay = vbox(self.review_card, m=PAD_LG, s=PAD_MD)
-        lay.addWidget(label("Podgląd obrazów", "FieldTitle"))
+        self.review_title = label("Podgląd obrazów", "FieldTitle")
+        lay.addWidget(self.review_title)
 
         content = QWidget(self.review_card)
         cl = hbox(content, s=PAD_LG)
@@ -204,15 +323,17 @@ class DownloadPage(QWidget):
         topic = card(content, surface=True)
         topic.setFixedWidth(248)
         tl = vbox(topic, m=PAD_MD, s=PAD_SM)
-        tl.addWidget(label(f"{I.TOPIC}  Temat lekcji", "FieldTitle"))
+        self.topic_title = label(f"{I.TOPIC}  Temat lekcji", "FieldTitle")
+        tl.addWidget(self.topic_title)
 
         self.topic_edit = QLineEdit(topic)
         self.topic_edit.setPlaceholderText("Wpisz temat lekcji…")
         self.topic_edit.returnPressed.connect(self._on_confirm)
         tl.addWidget(self.topic_edit)
 
-        tl.addWidget(label("Możesz wpisać temat lub pozostawić puste.",
-                           "Muted", wrap=True))
+        self.topic_hint = label("Możesz wpisać temat lub pozostawić puste.",
+                                "Muted", wrap=True)
+        tl.addWidget(self.topic_hint)
         tl.addStretch(1)
 
         self.confirm_btn = QPushButton("  Zatwierdź i pobierz", topic)
@@ -311,15 +432,18 @@ class DownloadPage(QWidget):
         self._download_allowed = enabled
         if self._state in (self.IDLE, self.DONE):
             self.download_btn.setEnabled(enabled)
+            self.append_check.setEnabled(enabled)
 
     def _set_state(self, state: int) -> None:
         self._state = state
         idle_like = state in (self.IDLE, self.DONE)
         self.url_edit.setEnabled(idle_like)
         self.download_btn.setEnabled(idle_like and self._download_allowed)
+        self.append_check.setEnabled(idle_like and self._download_allowed)
 
         if state == self.IDLE:
-            self._set_main_button("  Pobierz", "DOWNLOAD")
+            self._set_main_button(DOWNLOAD_TEXT, "DOWNLOAD")
+            self._set_append_target(None)
             anim.fade_out(self.status_card, on_done=self.status_card.hide)
             anim.fade_out(self.review_card, on_done=self.review_card.hide)
             self.dup_label.hide()
@@ -341,8 +465,9 @@ class DownloadPage(QWidget):
             anim.reveal(self.status_card, ms=anim.BASE)
 
         elif state == self.REVIEW:
-            self._set_main_button("  Pobierz", "DOWNLOAD")
+            self._set_main_button(DOWNLOAD_TEXT, "DOWNLOAD")
             self.status_card.hide()
+            self._sync_review_mode()
             anim.reveal(self.review_card, ms=anim.BASE)
 
         elif state == self.DOWNLOADING:
@@ -350,7 +475,7 @@ class DownloadPage(QWidget):
             self.review_card.hide()
             self.progress.setRange(0, 1000)
             self.progress.setValue(0)
-            self.status_title.setText(f"{I.DOWNLOAD}   Pobieranie obrazów…")
+            self.status_title.setText(self._busy_title())
             self.status_pct.setText("0%")
             self.status_sub.setText("")
             anim.reveal(self.status_card, ms=anim.BASE)
@@ -362,13 +487,9 @@ class DownloadPage(QWidget):
     # ────────────────────────────── Phase 1
 
     def _on_url_changed(self, text: str) -> None:
-        if self._awaiting_dup and text.strip() != self._current_url:
-            self._awaiting_dup = False
-            anim.fade_out(self.dup_label)
-            self._set_main_button("  Pobierz", "DOWNLOAD")
-            self.download_btn.setObjectName("Primary")
-            self._restyle(self.download_btn)
-        elif not self._awaiting_dup and self.dup_label.isVisible():
+        if self._pending and text.strip() != self._pending[1]:
+            self._reset_pending()
+        elif not self._pending and self.dup_label.isVisible():
             # schowaj komunikat o nieobsługiwanym adresie po edycji
             anim.fade_out(self.dup_label)
 
@@ -385,57 +506,168 @@ class DownloadPage(QWidget):
         w.style().polish(w)
 
     def _on_download(self) -> None:
+        """Adres → duplikat → skan. Tryb wynika z zaznaczonego pola wyboru."""
         url = self.url_edit.text().strip()
         if not url:
             self.log("Podaj URL strony z lekcją.")
             return
 
         if not is_supported_url(url):
-            self._awaiting_dup = False
-            self._set_main_button("  Pobierz", "DOWNLOAD")
-            self.download_btn.setObjectName("Primary")
-            self._restyle(self.download_btn)
-            self.dup_label.setObjectName("Err")
-            self._restyle(self.dup_label)
-            self.dup_label.setText(
-                f"{I.STOP}  Nieobsługiwany adres. Wklej link do lekcji w formacie:\n"
-                f"{SUPPORTED_URL_HINT}"
-            )
-            if not self.dup_label.isVisible():
-                anim.fade_in(self.dup_label, ms=anim.BASE)
-            self.log(f"Nieobsługiwany adres — dozwolone tylko: {SUPPORTED_URL_HINT}")
+            self._reset_pending()
+            self._show_url_error()
             return
 
-        if self._awaiting_dup and self._current_url == url:
-            self._awaiting_dup = False
-            anim.fade_out(self.dup_label)
-            self.download_btn.setObjectName("Primary")
-            self._restyle(self.download_btn)
+        # Powtórne kliknięcie z tym samym adresem = zgoda na duplikat.
+        if self._pending == url:
+            self._reset_pending()
             self._start_phase1(url)
             return
 
         self._current_url = url
         self._clear_log()
-        self._awaiting_dup = False
+        self._reset_pending()
         self.paths_box.hide()
 
         existing = find_existing_lesson(load_history(), url)
         if existing:
-            self._awaiting_dup = True
-            self.dup_label.setObjectName("Warn")
-            self._restyle(self.dup_label)
-            self.dup_label.setText(
-                f"{I.WARN}  Ten URL pobrano wcześniej: lekcja #{existing['number']} "
-                f"({existing['topic']}, {existing['downloaded_at']}). "
-                f"Kliknij „Kontynuuj”, aby pobrać ponownie."
-            )
-            anim.fade_in(self.dup_label, ms=anim.BASE)
-            self._set_main_button("  Kontynuuj", "REFRESH")
-            self.log("Wykryto pobraną wcześniej lekcję. "
-                     "Oczekuję na potwierdzenie kontynuacji.")
+            self._warn_duplicate(url, existing)
             return
 
         self._start_phase1(url)
+
+    def _show_url_error(self) -> None:
+        self.dup_label.setObjectName("Err")
+        self._restyle(self.dup_label)
+        self.dup_label.setText(
+            f"{I.STOP}  Nieobsługiwany adres. Wklej link do lekcji w formacie:\n"
+            f"{SUPPORTED_URL_HINT}"
+        )
+        if not self.dup_label.isVisible():
+            anim.fade_in(self.dup_label, ms=anim.BASE)
+        self.log(f"Nieobsługiwany adres — dozwolone tylko: {SUPPORTED_URL_HINT}")
+
+    def _reset_pending(self) -> None:
+        """Cofa pytanie o duplikat: napis przycisku wraca na swoje miejsce."""
+        self._pending = None
+        if self.dup_label.isVisible():
+            anim.fade_out(self.dup_label)
+        if self._state in (self.IDLE, self.DONE, self.REVIEW):
+            self._set_main_button(DOWNLOAD_TEXT, "DOWNLOAD")
+        self.download_btn.setObjectName("Primary")
+        self._restyle(self.download_btn)
+
+    def _warn_duplicate(self, url: str, existing: dict) -> None:
+        """Ten adres już raz pobrano — czekamy na świadome potwierdzenie."""
+        self._pending = url
+        self.dup_label.setObjectName("Warn")
+        self._restyle(self.dup_label)
+        source = ("dopisano już jako tablice do lekcji"
+                  if existing.get("appended") else "pobrano już jako lekcję")
+        action = "Dopisz mimo to" if self._append_target else "Kontynuuj"
+        self.dup_label.setText(
+            f"{I.WARN}  Ten URL {source} #{existing['number']} "
+            f"({existing['topic']}, {existing['downloaded_at']}). "
+            f"Kliknij „{action}”, aby pobrać go ponownie."
+        )
+        anim.fade_in(self.dup_label, ms=anim.BASE)
+        self._set_main_button(f"  {action}", "REFRESH")
+        self.log("Wykryto pobraną wcześniej lekcję. "
+                 "Oczekuję na potwierdzenie kontynuacji.")
+
+    # ────────────────────────────── tryb dopisywania
+
+    def _on_append_toggled(self, checked: bool) -> None:
+        """Zaznaczenie pyta o lekcję; rezygnacja w oknie cofa zaznaczenie."""
+        if not checked:
+            self._set_append_target(None)
+            return
+        target = self._choose_lesson()
+        if target is None:
+            self._set_checked(False)
+            return
+        self._set_append_target(target)
+
+    def _set_checked(self, checked: bool) -> None:
+        """Ustawia pole wyboru bez wywoływania `toggled` (uniknięcie pętli)."""
+        self.append_check.blockSignals(True)
+        self.append_check.setChecked(checked)
+        self.append_check.blockSignals(False)
+
+    def _choose_lesson(self) -> Optional[dict]:
+        """Pyta, do której lekcji dopisać tablice. None = użytkownik odpuścił."""
+        lessons = load_history().get("lessons", [])
+        if not lessons:
+            self.dup_label.setObjectName("Err")
+            self._restyle(self.dup_label)
+            self.dup_label.setText(
+                f"{I.STOP}  Historia jest pusta — nie ma do czego dopisywać. "
+                f"Pobierz najpierw lekcję przyciskiem „Pobierz”."
+            )
+            if not self.dup_label.isVisible():
+                anim.fade_in(self.dup_label, ms=anim.BASE)
+            self.log("Brak lekcji w historii — dopisywanie niemożliwe.")
+            return None
+
+        # Najświeższa lekcja na górze listy: to do niej dopisuje się najczęściej.
+        lessons.sort(key=lambda x: (x.get("number", 0),
+                                    x.get("downloaded_at", "")), reverse=True)
+        dlg = LessonPickerDialog(self.window(), lessons, self._config)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            self.log("Dopisywanie anulowane.")
+            return None
+        return dlg.selected()
+
+    def _set_append_target(self, lesson: Optional[dict]) -> None:
+        """Ustawia (albo zdejmuje) cel dopisywania i podpis pod kartą URL."""
+        self._append_target = lesson
+        if lesson is None:
+            self._set_checked(False)
+            if self.append_note.isVisible():
+                anim.fade_out(self.append_note)
+            return
+        self._set_checked(True)
+        topic = lesson.get("topic", "")
+        nice = "" if topic in NO_TOPIC else f" ({topic})"
+        self.append_note.setText(
+            f"Tablice trafią do lekcji #{lesson.get('number', '?')}{nice} — "
+            f"numer lekcji i licznik kolejnych pozostaną bez zmian."
+        )
+        if not self.append_note.isVisible():
+            anim.fade_in(self.append_note, ms=anim.BASE)
+
+    def _busy_title(self) -> str:
+        """Nagłówek paska postępu — zależny od trybu, bo tryby robią co innego."""
+        if self._append_target is not None:
+            num = self._append_target.get("number", "?")
+            return f"{I.DOWNLOAD}   Dopisywanie tablic do lekcji #{num}…"
+        return f"{I.DOWNLOAD}   Pobieranie obrazów…"
+
+    def _sync_review_mode(self) -> None:
+        """Dostraja kartę podglądu do trybu: nowa lekcja vs dopisywanie tablic."""
+        lesson = self._append_target
+        if lesson is None:
+            self.review_title.setText("Podgląd obrazów")
+            self.topic_title.setText(f"{I.TOPIC}  Temat lekcji")
+            self.topic_edit.setEnabled(True)
+            self.topic_edit.setPlaceholderText("Wpisz temat lekcji…")
+            self.topic_hint.setText("Możesz wpisać temat lub pozostawić puste.")
+            self.confirm_btn.setText("  Zatwierdź i pobierz")
+            return
+
+        num = lesson.get("number", "?")
+        topic = lesson.get("topic", "")
+        self.review_title.setText(f"Podgląd tablic do dopisania (lekcja #{num})")
+        self.topic_title.setText(f"{I.TOPIC}  Lekcja docelowa")
+        # Temat jest własnością lekcji docelowej — dopisywane tablice nie mogą
+        # zmienić nazwy jej folderu, więc pole tylko informuje.
+        self.topic_edit.setEnabled(False)
+        self.topic_edit.setText("" if topic in NO_TOPIC else topic)
+        self.topic_edit.setPlaceholderText(f"Lekcja #{num} — bez tematu")
+        self.topic_hint.setText(
+            f"Obrazy dostaną dalsze numery w folderze lekcji #{num}. "
+            f"Temat i numeracja lekcji zostają bez zmian."
+        )
+        self.confirm_btn.setText(f"  Dopisz do lekcji #{num}")
 
     def _start_phase1(self, url: str) -> None:
         self._hide_timer.stop()
@@ -444,7 +676,8 @@ class DownloadPage(QWidget):
         self.log(f"Rozpoczynam pobieranie: {url}")
         self.log("━" * 50)
 
-        self._job = workers.Phase1Job(url, self._config)
+        self._job = workers.Phase1Job(url, self._config,
+                                      append_lesson=self._append_target)
         self._job.log.connect(self.log)
         self._job.done.connect(self._on_phase1_done)
         self._job.failed.connect(self._on_phase1_failed)
@@ -587,12 +820,23 @@ class DownloadPage(QWidget):
     # ────────────────────────────── Phase 2
 
     def _on_confirm(self) -> None:
-        topic = sanitize_filename(self.topic_edit.text().strip() or "Bez_tematu")
-        self.log(f"Zatwierdzony temat: {topic}")
-        self._set_state(self.DOWNLOADING)
+        # Cel dopisywania trzeba zapamiętać przed zmianą stanu: to on decyduje
+        # o wariancie fazy 2, a podpisy paska postępu czytają go dalej.
+        lesson = self._append_target
+        if lesson is not None:
+            self.log(f"Dopisywanie do lekcji #{lesson.get('number', '?')} "
+                     f"({lesson.get('topic', '') or 'bez tematu'}).")
+            self._set_state(self.DOWNLOADING)
+            self._job = workers.Phase2AppendJob(self._current_url, lesson,
+                                                self._phase1, self._config)
+        else:
+            topic = sanitize_filename(
+                self.topic_edit.text().strip() or "Bez_tematu")
+            self.log(f"Zatwierdzony temat: {topic}")
+            self._set_state(self.DOWNLOADING)
+            self._job = workers.Phase2Job(self._current_url, topic,
+                                          self._phase1, self._config)
 
-        self._job = workers.Phase2Job(self._current_url, topic, self._phase1,
-                                      self._config)
         self._job.log.connect(self.log)
         self._job.progress.connect(self._on_progress)
         self._job.done.connect(self._on_phase2_done)
@@ -605,7 +849,7 @@ class DownloadPage(QWidget):
         pct_i = int(round(pct * 100))
         self.status_sub.setText(f"Obraz {current} z {total}" if total else "")
         self.status_pct.setText(f"{pct_i}%")
-        self.status_title.setText(f"{I.DOWNLOAD}   Pobieranie obrazów… {pct_i}%")
+        self.status_title.setText(f"{self._busy_title()} {pct_i}%")
 
         a = QPropertyAnimation(self.progress, QByteArray(b"value"), self)
         a.setDuration(anim.FAST)
@@ -620,8 +864,13 @@ class DownloadPage(QWidget):
         self._set_state(self.IDLE)
 
     def _on_phase2_done(self, result: LessonResult) -> None:
-        self.status_title.setText(f"{I.OK}   Pobieranie zakończone")
-        self.status_sub.setText("")
+        added = result.downloaded_images
+        self.status_title.setText(
+            f"{I.OK}   Dopisano do lekcji #{result.lesson_number}"
+            if result.appended else f"{I.OK}   Pobieranie zakończone")
+        self.status_sub.setText(
+            f"Dopisano {added} {boards_word(added)} z {result.total_images}"
+            if result.appended else "")
         self.status_pct.setText("100%")
         self.status_pct.setObjectName("StatusPctDone")
         self._restyle(self.status_pct)
@@ -649,20 +898,38 @@ class DownloadPage(QWidget):
                     dirs.append(d)
 
         if dirs:
-            self.paths_layout.addWidget(
-                label(f"{I.OK}  Zapisano w folderach:", "FieldTitle"))
+            self.paths_layout.addWidget(label(
+                f"{I.OK}  Dopisano w folderach:" if result.appended
+                else f"{I.OK}  Zapisano w folderach:", "FieldTitle"))
             self.paths_box.show()
             anim.stagger(dirs, self._add_path_row, first=80, step=70)
 
         self.log("\n" + "━" * 50)
-        self.log("  Pobieranie zakończone!")
-        self.log(f"  Lekcja:  #{result.lesson_number}")
-        self.log(f"  Temat:   {result.topic}")
-        self.log(f"  Obrazów: {result.downloaded_images}/{result.total_images}")
+        if result.appended:
+            last = result.first_index + added - 1
+            self.log("  Dopisywanie zakończone!")
+            self.log(f"  Lekcja:   #{result.lesson_number}")
+            self.log(f"  Temat:    {result.topic}")
+            self.log(f"  Tablic:   {added}/{result.total_images} "
+                     f"(numery {result.first_index:02d}–{last:02d})")
+        else:
+            self.log("  Pobieranie zakończone!")
+            self.log(f"  Lekcja:  #{result.lesson_number}")
+            self.log(f"  Temat:   {result.topic}")
+            self.log(f"  Obrazów: {added}/{result.total_images}")
         self.log("━" * 50)
 
         self._set_state(self.DONE)
         self.history_changed.emit()
+
+        if result.appended:
+            # Pasek statusu znika po chwili, a to jedyne potwierdzenie, że
+            # tablice trafiły do STAREJ lekcji, a nie do nowej.
+            Toast.show_at(
+                self.window(),
+                f"{I.OK}  Dopisano {added} {boards_word(added)} "
+                f"do lekcji #{result.lesson_number}", C.SUCCESS, ms=3200)
+            self._set_append_target(None)
 
         self._hide_timer.start(STATUS_AUTOHIDE_MS)
 

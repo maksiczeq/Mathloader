@@ -19,6 +19,7 @@ from PySide6.QtCore import QObject, Signal
 
 from downloader import (
     LessonResult, Phase1Result, download_image, run_phase1, run_phase2,
+    run_phase2_append,
 )
 from updater import (
     DownloadCancelled, UpdateError, download_asset, fetch_checksum,
@@ -51,13 +52,15 @@ class Phase1Job(_Job):
 
     done = Signal(object)              # Phase1Result
 
-    def __init__(self, url: str, config):
+    def __init__(self, url: str, config, append_lesson: dict | None = None):
         super().__init__()
         self._url = url
         self._config = config
+        self._append_lesson = append_lesson
 
     def _run(self) -> None:
-        result = run_phase1(self._url, self._config, on_log=self.log.emit)
+        result = run_phase1(self._url, self._config, on_log=self.log.emit,
+                            append_lesson=self._append_lesson)
         self.done.emit(result)
 
 
@@ -77,6 +80,28 @@ class Phase2Job(_Job):
     def _run(self) -> None:
         result = run_phase2(
             url=self._url, topic=self._topic, phase1=self._phase1,
+            config=self._config, on_log=self.log.emit,
+            on_progress=self.progress.emit,
+        )
+        self.done.emit(result)
+
+
+class Phase2AppendJob(_Job):
+    """Dopisanie obrazów do folderu lekcji pobranej wcześniej."""
+
+    progress = Signal(float)
+    done = Signal(object)             # LessonResult
+
+    def __init__(self, url: str, lesson: dict, phase1: Phase1Result, config):
+        super().__init__()
+        self._url = url
+        self._lesson = lesson
+        self._phase1 = phase1
+        self._config = config
+
+    def _run(self) -> None:
+        result = run_phase2_append(
+            url=self._url, lesson=self._lesson, phase1=self._phase1,
             config=self._config, on_log=self.log.emit,
             on_progress=self.progress.emit,
         )
