@@ -14,32 +14,20 @@ from PySide6.QtWidgets import (
 
 from config import AppConfig
 from downloader import (
-    delete_lesson, is_link_expired, lesson_expiry, load_history, save_history,
+    appended_count, delete_lesson, is_link_expired, lesson_expiry,
+    lesson_folders, load_history, save_history,
 )
 from qtui import anim
 from qtui.theme import C, G, I, PAD_LG, PAD_MD, PAD_SM
-from qtui.widgets import ConfirmDialog, Toast, hbox, label, restyle, vbox
+from qtui.widgets import (
+    ConfirmDialog, Toast, boards_word, hbox, label, restyle, vbox,
+)
 
 SORTS = ["Najnowsze najpierw", "Najstarsze najpierw", "Nazwa: A-Z", "Nazwa: Z-A"]
 
 # Kaskada wejścia listy: ile kart animować i co ile milisekund.
 FADE_STEP = 40
 FADE_CAP = 10
-
-
-def lesson_folders(lesson: dict, config: AppConfig) -> list[Path]:
-    """Foldery, w których leży ta lekcja.
-
-    Pobieranie zapisuje realne ścieżki w historii (`folders`). Starsze wpisy
-    ich nie mają — dla nich nazwę trzeba odtworzyć z aktualnego szablonu, co
-    się rozjedzie, jeśli użytkownik zmienił format nazw po pobraniu.
-    """
-    stored = [Path(f) for f in lesson.get("folders", []) if f]
-    if stored:
-        return stored
-    name = config.format_folder_name(lesson.get("number", 1),
-                                     lesson.get("topic", ""))
-    return [base / name for base in config.save_paths]
 
 
 def pick_lesson_folder(lesson: dict, config: AppConfig) -> Optional[Path]:
@@ -100,6 +88,17 @@ class LessonCard(QFrame):
         if empty:
             f = tw.font(); f.setItalic(True); tw.setFont(f)
         tl.addWidget(tw, 1)
+
+        # Dopisane tablice: bez tej plakietki lekcja z 30 plikami wyglądałaby
+        # w historii tak samo jak tuż po pobraniu.
+        added = appended_count(lesson)
+        if added:
+            badge = label(f"+{added} {boards_word(added)}", "Accent")
+            last = (lesson.get("appends") or [{}])[-1].get("at", "")
+            badge.setToolTip(
+                f"Tablice dopisane do tej lekcji po pobraniu"
+                + (f" (ostatnio: {last})" if last else ""))
+            tl.addWidget(badge)
         lay.addWidget(top)
 
         # dolny wiersz: data + URL + akcje
@@ -355,7 +354,8 @@ class HistoryPage(QWidget):
         # Data wygaśnięcia zmienia kolor numeru, więc wchodzi do odcisku palca.
         signature = (self._sort, self._hide_expired, hidden, tuple(
             (x.get("url"), x.get("number"), x.get("topic"),
-             x.get("downloaded_at"), is_link_expired(x)) for x in lessons))
+             x.get("downloaded_at"), is_link_expired(x), appended_count(x))
+            for x in lessons))
         if signature == self._signature:
             return
         self._signature = signature

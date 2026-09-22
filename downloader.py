@@ -86,6 +86,10 @@ class LessonResult:
     downloaded_images: int
     save_results: list[tuple[str, bool, str]] = field(default_factory=list)
     error: Optional[str] = None
+    # Dopisywanie tablic do lekcji pobranej wcześniej: numer lekcji i licznik
+    # historii zostają nietknięte, a obrazy dostają dalsze numery w jej folderze.
+    appended: bool = False
+    first_index: int = 1
 
 
 # ──────────────────────────────────────────────
@@ -120,16 +124,29 @@ def delete_history() -> None:
         pass
 
 
+def _entry_summary(entry: dict, history: dict, *, appended: bool = False) -> dict:
+    """Skrót wpisu historii — to, co GUI pokazuje w ostrzeżeniu o duplikacie."""
+    return {
+        "number": entry.get("number", history.get("next_number", 2) - 1),
+        "topic": entry.get("topic", ""),
+        "downloaded_at": entry.get("downloaded_at", ""),
+        "created_at": entry.get("created_at", entry.get("downloaded_at", "")),
+        # True, gdy URL trafił tu jako dopisana tablica, a nie jako sama lekcja.
+        "appended": appended,
+    }
+
+
 def find_existing_lesson(history: dict, url: str) -> Optional[dict]:
-    """Szuka lekcji w historii po URL-u."""
+    """Szuka lekcji w historii po URL-u (także wśród dopisanych tablic)."""
     for entry in history.get("lessons", []):
         if entry.get("url") == url:
-            return {
-                "number": entry.get("number", history.get("next_number", 2) - 1),
-                "topic": entry.get("topic", ""),
-                "downloaded_at": entry.get("downloaded_at", ""),
-                "created_at": entry.get("created_at", entry.get("downloaded_at", "")),
-            }
+            return _entry_summary(entry, history)
+    # Link dopisanych tablic też był już pobrany — inaczej aplikacja
+    # zaproponowałaby założenie z niego nowej lekcji bez słowa ostrzeżenia.
+    for entry in history.get("lessons", []):
+        for extra in entry.get("appends", []):
+            if extra.get("url") == url:
+                return _entry_summary(entry, history, appended=True)
     # Zgodność wstecz ze starszym formatem historii (bez listy "lessons").
     if history.get("last_url") == url:
         return {
@@ -207,6 +224,71 @@ def register_lesson(history: dict, url: str, lesson_number: int, topic: str,
     history["last_topic"] = topic
     history["last_downloaded_at"] = downloaded_at
     save_history(history)
+
+
+def lesson_folders(lesson: dict, config) -> list[Path]:
+    """Foldery, w których leży ta lekcja.
+
+    Pobieranie zapisuje realne ścieżki w historii (`folders`). Starsze wpisy
+    ich nie mają — dla nich nazwę trzeba odtworzyć z aktualnego szablonu, co
+    się rozjedzie, jeśli użytkownik zmienił format nazw po pobraniu.
+    """
+    stored = [Path(f) for f in lesson.get("folders", []) if f]
+    if stored:
+        return stored
+    name = config.format_folder_name(lesson.get("number", 1),
+                                     lesson.get("topic", ""))
+    return [base / name for base in config.save_paths]
+
+
+def find_lesson_entry(history: dict, lesson: dict) -> Optional[dict]:
+    """Zwraca ŻYWY wpis z historii odpowiadający lekcji (nie kopię).
+
+    Karty w GUI trzymają wczytane wcześniej słowniki; żeby dopisać do nich
+    cokolwiek trwale, trzeba odnaleźć ten sam wpis w świeżo wczytanej historii.
+    """
+    lessons = history.get("lessons", [])
+    for entry in lessons:
+        if (entry.get("url") == lesson.get("url")
+                and entry.get("number") == lesson.get("number")
+                and entry.get("downloaded_at") == lesson.get("downloaded_at")):
+            return entry
+    for entry in lessons:
+        if entry.get("url") == lesson.get("url"):
+            return entry
+    for entry in lessons:
+        if entry.get("number") == lesson.get("number"):
+            return entry
+    return None
+
+
+def appended_count(lesson: dict) -> int:
+    """Ile tablic dopisano do tej lekcji już po jej pobraniu."""
+    return sum(int(a.get("images", 0) or 0) for a in lesson.get("appends", []))
+
+
+def register_append(history: dict, lesson: dict, url: str, images: int,
+                    folders: list[str]) -> bool:
+    """Dopisuje do historii informację o tablicach doklejonych do lekcji.
+
+    Nowego wpisu NIE tworzy i licznika `next_number` NIE rusza — dlatego
+    dopisanie tablic nie zabiera numeru następnej lekcji. False oznacza, że
+    wpisu już nie ma (np. skasowany w innej zakładce w trakcie pobierania).
+    """
+    entry = find_lesson_entry(history, lesson)
+    if entry is None:
+        return False
+    entry.setdefault("appends", []).append({
+        "url": url,
+        "at": time.strftime(_HISTORY_TS_FMT),
+        "images": images,
+    })
+    # Stare wpisy nie mają listy folderów — skoro właśnie do nich pisaliśmy,
+    # zapamiętaj je, żeby „Otwórz" w historii przestało zgadywać z szablonu.
+    if not entry.get("folders") and folders:
+        entry["folders"] = list(folders)
+    save_history(history)
+    return True
 
 
 def delete_lesson(history: dict, lesson: dict) -> bool:
@@ -428,10 +510,15 @@ def run_phase1(
     url: str,
     config,
     on_log: Optional[LogCallback] = None,
+    append_lesson: Optional[dict] = None,
 ) -> Phase1Result:
     """
     Otwiera stronę, scrolluje, zbiera URL-e obrazów, pobiera
     pierwszy obraz i przepuszcza go przez OCR.
+
+    `append_lesson` — lekcja z historii, do której obrazy mają zostać dopisane.
+    Wtedy numer bierzemy z niej, a nie z licznika: dopisywanie tablic nie może
+    zająć numeru czekającego na następną lekcję.
     """
     if not is_supported_url(url):
         raise ValueError(
@@ -442,13 +529,19 @@ def run_phase1(
     existing = find_existing_lesson(history, url)
     # Ponowne pobranie tego samego URL-a zachowuje oryginalny numer lekcji
     # (nie tworzy dziury w numeracji ani duplikatu w historii).
-    if existing and existing.get("number"):
+    if append_lesson is not None:
+        lesson_number = int(append_lesson.get("number", 0) or 0)
+    elif existing and existing.get("number"):
         lesson_number = existing["number"]
     else:
         lesson_number = get_next_lesson_number(history)
 
     if on_log:
-        on_log(f"Numer lekcji: {lesson_number}")
+        if append_lesson is not None:
+            on_log(f"Tryb dopisywania — lekcja #{lesson_number} "
+                   f"({append_lesson.get('topic', '') or 'bez tematu'})")
+        else:
+            on_log(f"Numer lekcji: {lesson_number}")
         on_log("Uruchamiam przeglądarkę…")
 
     with sync_playwright() as pw:
@@ -603,4 +696,146 @@ def run_phase2(
         total_images=total,
         downloaded_images=downloaded_count,
         save_results=all_results,
+    )
+
+
+# ──────────────────────────────────────────────
+# FAZA 2 (wariant) — dopisanie tablic do lekcji pobranej wcześniej
+# ──────────────────────────────────────────────
+
+# Ile kolejnych numerów obrazu sprawdzamy, szukając ostatniego już zapisanego.
+# Lekcja to kilkanaście–kilkadziesiąt tablic, więc zapas jest ogromny, a pętla
+# działa na gotowej liście nazw z folderu (bez odpytywania dysku co numer).
+APPEND_INDEX_LIMIT = 2000
+
+
+def next_image_index(folders: list[Path], lesson_number: int, topic: str,
+                     config) -> int:
+    """Pierwszy wolny numer obrazu w folderach lekcji.
+
+    Bierzemy NAJWYŻSZY zajęty numer i dodajemy jeden — nie pierwszą dziurę.
+    Gdyby któryś obraz nie pobrał się za pierwszym razem, dopisana tablica
+    wskoczyłaby w jego miejsce i zaburzyła kolejność lekcji.
+    """
+    highest = 0
+    for folder in folders:
+        try:
+            names = {p.name for p in folder.iterdir() if p.is_file()}
+        except OSError:
+            continue
+        for idx in range(1, APPEND_INDEX_LIMIT + 1):
+            if config.format_image_name(lesson_number, idx, topic) in names:
+                highest = max(highest, idx)
+    return highest + 1
+
+
+def _free_image_index(folders: list[Path], lesson_number: int, topic: str,
+                      config, start: int) -> int:
+    """Pierwszy numer od `start`, pod którym w żadnym folderze nic nie leży.
+
+    Ostatnia linia obrony przed nadpisaniem: gdy użytkownik zmienił format
+    nazw po pobraniu lekcji, `next_image_index` nie rozpozna starych plików
+    i wróciłby z jedynką.
+    """
+    idx = max(1, start)
+    while any((folder / config.format_image_name(lesson_number, idx, topic)).exists()
+              for folder in folders):
+        idx += 1
+    return idx
+
+
+def run_phase2_append(
+    url: str,
+    lesson: dict,
+    phase1: Phase1Result,
+    config,
+    on_log: Optional[LogCallback] = None,
+    on_progress: Optional[ProgressCallback] = None,
+) -> LessonResult:
+    """Dopisuje obrazy z `url` do folderu lekcji pobranej wcześniej.
+
+    Nowy folder nie powstaje, numer lekcji i licznik historii zostają bez
+    zmian — obrazy dostają kolejne numery po tych, które już tam leżą.
+    """
+    lesson_number = int(lesson.get("number", 0) or 0)
+    topic = lesson.get("topic", "") or "Bez_tematu"
+
+    all_folders = lesson_folders(lesson, config)
+    folders = [f for f in all_folders if f.exists()]
+    if not folders:
+        raise FileNotFoundError(
+            f"Nie znaleziono folderu lekcji #{lesson_number} "
+            f"({all_folders[0] if all_folders else '—'}). "
+            f"Sprawdź, czy dysk jest podłączony, a folder nie został przeniesiony."
+        )
+
+    missing = [f for f in all_folders if f not in folders]
+    if on_log:
+        on_log(f"Dopisywanie tablic do lekcji #{lesson_number} ({topic}).")
+        for f in folders:
+            on_log(f"  → {f}")
+        for f in missing:
+            on_log(f"  ⚠ pomijam (brak folderu): {f}")
+
+    start = next_image_index(folders, lesson_number, topic, config)
+    total = len(phase1.image_urls)
+    if on_log:
+        on_log(f"Numeracja od {start:02d} (obrazów do dopisania: {total}).")
+
+    downloaded_count = 0
+    cursor = start
+    all_results: list[tuple[str, bool, str]] = []
+
+    for idx, img_url in enumerate(phase1.image_urls, start=1):
+        cursor = _free_image_index(folders, lesson_number, topic, config, cursor)
+        filename = config.format_image_name(lesson_number, cursor, topic)
+        if on_log:
+            on_log(f"[{idx}/{total}] {filename}")
+
+        if idx == 1 and phase1.first_image_bytes:
+            image_bytes: Optional[bytes] = phase1.first_image_bytes
+        else:
+            image_bytes = download_image(img_url, headers=phase1.headers)
+
+        if image_bytes:
+            image_bytes = convert_to_jpeg(image_bytes)
+            results = save_image_to_paths(image_bytes, filename, folders)
+            for path, success, msg in results:
+                status = "✓" if success else "✗"
+                detail = f" ({msg})" if not success else ""
+                if on_log:
+                    on_log(f"  {status} {path}{detail}")
+            all_results.extend([(str(p), s, m) for p, s, m in results])
+            downloaded_count += 1
+            cursor += 1
+        else:
+            if on_log:
+                on_log("  ✗ Pominięto (błąd pobierania)")
+
+        if on_progress:
+            on_progress(idx / total)
+
+    if downloaded_count:
+        history = load_history()
+        noted = register_append(history, lesson, url, downloaded_count,
+                                [str(f) for f in folders])
+        if not noted and on_log:
+            # Pliki leżą na dysku, więc to nie jest błąd pobierania — ale bez
+            # wpisu historia nie pokaże, skąd te tablice się wzięły.
+            on_log("⚠ Lekcji nie ma już w historii — tablice zapisano, "
+                   "ale nie odnotowano ich w jej wpisie.")
+
+    if on_log:
+        on_log(f"\n✅ GOTOWE — dopisano {downloaded_count}/{total} obrazów "
+               f"do lekcji #{lesson_number}.")
+
+    return LessonResult(
+        success=downloaded_count > 0,
+        lesson_number=lesson_number,
+        topic=topic,
+        total_images=total,
+        downloaded_images=downloaded_count,
+        save_results=all_results,
+        appended=True,
+        first_index=start,
     )

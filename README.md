@@ -15,6 +15,12 @@ Interfejs: PySide6 (Qt 6). Strony renderuje dołączona przeglądarka Chromium
   wszystkie obrazy i pobiera je w oryginalnej jakości.
 - **Podgląd przed zapisem** — przeglądasz obrazy w galerii i dopisujesz temat
   lekcji, zanim cokolwiek trafi na dysk.
+- **Dopisanie tablic do wcześniejszej lekcji** — pole wyboru pod adresem.
+  Gdy nauczyciel wrzuci resztę tablic osobnym linkiem, obrazy trafiają do
+  folderu wskazanej lekcji z dalszymi numerami (`…-05.jpg`, `…-06.jpg`).
+  Nowa lekcja nie powstaje, a licznik kolejnych numerów zostaje nietknięty —
+  nie trzeba go przestawiać ręcznie. W historii lekcja dostaje plakietkę
+  z liczbą dopisanych tablic.
 - **Dowolna liczba kopii zapisu** (dysk lokalny, pendrive, dysk sieciowy);
   aplikacja na bieżąco sprawdza, czy ścieżki są osiągalne, i ostrzega, gdy nie są.
 - **Domyślna ścieżka zapisu** — pierwsza na liście, pogrubiona, podpisana
