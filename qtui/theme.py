@@ -80,6 +80,12 @@ DARK = Palette(
     DEFAULT_MARK="#e3b341",
     SCROLL="#2b3444",
     SCROLL_HOVER="#3a465c",
+    # Karta „Opcje Eksperymentalne” (odblokowywana easter eggiem w Info).
+    EXPERIMENTAL_BG="#241b35",
+    ACCENT_SOFT="rgba(188, 140, 255, 0.14)",
+    # Treść karty: trochę ciemniejsza od ACCENT (nagłówka), ale wciąż wyraźnie
+    # jaśniejsza od EXPERIMENTAL_BG, pod którym leży — inaczej zlałaby się z tłem.
+    EXPERIMENTAL_TEXT="#7859a4",
 )
 
 # ── Paleta jasna ────────────────────────────────────────────────────────────
@@ -139,6 +145,9 @@ LIGHT = Palette(
     DEFAULT_MARK="#9a6700",
     SCROLL="#d0d7de",
     SCROLL_HOVER="#afb8c1",
+    EXPERIMENTAL_BG="#f3eefc",
+    ACCENT_SOFT="rgba(130, 80, 223, 0.10)",
+    EXPERIMENTAL_TEXT="#6840b2",
 )
 
 PALETTES: dict[str, Palette] = {"dark": DARK, "light": LIGHT}
@@ -237,6 +246,7 @@ class Icon:
     INFO       = "ℹ"
     PLUS       = "➕"
     LICENSE    = "📜"
+    ROCKET     = "🚀"
 
     # ── znaki jednobarwne (dziedziczą kolor tekstu) ──
     CHECK      = "✓"
@@ -393,6 +403,20 @@ QLabel#WizardTitle {{ font-size: 24px; font-weight: 800; color: {C.TEXT}; }}
 QLabel#Accent     {{ font-size: {F.SIZE_SM}px; font-weight: 700; color: {C.PRIMARY}; }}
 QLabel#License    {{ color: {C.TEXT_SECONDARY}; background: transparent; }}
 QLabel#Signature  {{ color: {C.PRIMARY_DARK}; background: transparent; }}
+
+/* Easter egg: pole wersji w Info, klikane 5× odblokowuje Opcje Eksperymentalne.
+   Obwódka jest zawsze zarezerwowana (przezroczysta) — koloru dostaje tylko na
+   chwilę, przez `anim.border_pulse`/`border_glow_on`, żeby jej pojawienie się
+   nie przesuwało reszty wiersza. Obwódka musi być RÓWNA na wszystkich 4
+   bokach — bez tego Qt nie zaokrągla poprawnie róg bez swojej krawędzi
+   (lewa strona wychodzi ucięta, płaska). Padding jest symetryczny (tekst na
+   środku ramki) — wyrównanie z „Autor:” nad nią załatwia takie samo wcięcie
+   dodane do tamtego wiersza (zobacz `author_row` w info_page.py), zamiast
+   psuć symetrię obwódki tutaj. */
+QFrame#VersionClickZone {{
+    border: 2px solid transparent; border-radius: {RADIUS_SM}px;
+    padding: 4px 2px; background: transparent;
+}}
 
 /* Stany — zamiast wstrzykiwania koloru w kodzie (inaczej nie przełączyłyby
    się razem z motywem). */
@@ -695,6 +719,33 @@ QPushButton#PinBtn:hover {{
     background: {C.BG_HOVER}; color: {C.DEFAULT_MARK};
     border-color: {C.DEFAULT_MARK};
 }}
+
+/* ── Opcje Eksperymentalne (odblokowywane w Info) ── */
+QFrame#ExperimentalCard {{
+    background: {C.EXPERIMENTAL_BG};
+    border: 1.5px solid {C.ACCENT};
+    border-radius: {RADIUS}px;
+}}
+QFrame#ExperimentalCard QFrame#Separator {{ background: {C.ACCENT_SOFT}; }}
+QLabel#ExperimentalGlyph {{ font-size: {F.SIZE_LG}px; background: transparent; }}
+QLabel#ExperimentalTitle {{
+    font-size: {F.SIZE_MD}px; font-weight: 800; color: {C.ACCENT};
+}}
+QLabel#ExperimentalText {{
+    font-size: {F.SIZE_XS}px; color: {C.EXPERIMENTAL_TEXT}; background: transparent;
+}}
+QLabel#ExperimentalContact {{
+    font-size: {F.SIZE_SM}px; color: {C.EXPERIMENTAL_TEXT}; background: transparent;
+}}
+QLabel#ExperimentalPlaceholder {{
+    font-size: {F.SIZE_SM}px; font-weight: 700; color: {C.TEXT_MUTED};
+    background: transparent; padding: {PAD_MD}px 0;
+}}
+QPushButton#ExperimentalDisable {{
+    background: transparent; border: 1px solid {C.ACCENT}; color: {C.ACCENT};
+    font-weight: 700; min-height: {CTRL_H}px; border-radius: {RADIUS}px;
+}}
+QPushButton#ExperimentalDisable:hover {{ background: {C.ACCENT_SOFT}; }}
 
 /* ── Przyciski z samą ikoną (font ikon Windows) ── */
 {_glyph_rule(F.SIZE_MD, 'QPushButton#IconDanger', 'QPushButton#NavArrow',

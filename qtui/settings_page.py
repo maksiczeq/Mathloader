@@ -16,12 +16,15 @@ from downloader import (
     delete_history, get_next_lesson_number, load_history, save_history,
 )
 from paths import ensure_data_dir, history_file
+from version import GITHUB_OWNER, GITHUB_REPO
 from qtui import anim
-from qtui.theme import G, I, PAD_LG, PAD_MD, PAD_SM, PAD_XL, PAD_XS
+from qtui.theme import C, G, I, PAD_LG, PAD_MD, PAD_SM, PAD_XL, PAD_XS
 from qtui.widgets import (
-    CollapsibleSection, Toast, TypeToConfirmDialog, card, glyph_label, hbox,
-    hline, label, restyle, set_glyph, vbox,
+    CollapsibleSection, ConfirmDialog, Toast, TypeToConfirmDialog, card,
+    glyph_label, hbox, hline, label, restyle, set_glyph, vbox,
 )
+
+_ISSUES_URL = f"https://github.com/{GITHUB_OWNER}/{GITHUB_REPO}/issues"
 
 DETAIL_TEXT = (
     "Lokalizacja zapisu lub pamięć masowa z zadeklarowaną ścieżką nie istnieje. "
@@ -201,6 +204,8 @@ class FormatField(QWidget):
 class SettingsForm(QScrollArea):
     """Współdzielony formularz — używany przez kreator i zakładkę ustawień."""
 
+    experimental_disabled = Signal()
+
     def __init__(self, config: AppConfig, *, offer_factory_reset: bool = False,
                  parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -303,6 +308,10 @@ class SettingsForm(QScrollArea):
             AB.addWidget(self._data_file_row("Ustawienia:", self._config.file))
             AB.addWidget(self._data_file_row("Historia lekcji:", history_file()))
 
+            self.experimental_card = self._build_experimental_card()
+            self.experimental_card.setVisible(self._config.experimental_features)
+            AB.addWidget(self.experimental_card)
+
             AB.addWidget(hline())
             AB.addWidget(label(
                 "Reset do ustawień fabrycznych — usuwa całą konfigurację oraz "
@@ -316,6 +325,85 @@ class SettingsForm(QScrollArea):
 
         L.addWidget(self.advanced)
         L.addStretch(1)
+
+    # ── Opcje Eksperymentalne (odblokowywane w zakładce Info) ──
+
+    def _build_experimental_card(self) -> QFrame:
+        box = QFrame()
+        box.setObjectName("ExperimentalCard")
+        bl = vbox(box, m=PAD_LG, s=PAD_SM)
+
+        head = QWidget(box)
+        hl = hbox(head, s=PAD_SM)
+        hl.addWidget(label(I.ROCKET, "ExperimentalGlyph"))
+        hl.addWidget(label("Opcje Eksperymentalne", "ExperimentalTitle"))
+        hl.addStretch(1)
+        bl.addWidget(head)
+
+        warn = label(
+            f'<span style="color:{C.ACCENT}; font-weight:800; '
+            f'text-decoration:underline;">UWAGA!</span> Te ustawienia są w '
+            "intensywnej fazie testów. Włączenie ich może zapewnić "
+            "nieprawidłową pracę niektórych funkcji, zdestabilizować "
+            "działanie aplikacji lub ulec jej awarii.",
+            "ExperimentalText", wrap=True)
+        warn.setTextFormat(Qt.TextFormat.RichText)
+        bl.addWidget(warn)
+
+        contact = label(
+            "W przypadku awarii, lub chęci zostawienia opinii zapraszam do "
+            f'kontaktu <a href="{_ISSUES_URL}" style="color:{C.ACCENT}; '
+            f'font-weight:800;"><i>TUTAJ</i></a>.',
+            "ExperimentalContact", wrap=True)
+        contact.setTextFormat(Qt.TextFormat.RichText)
+        contact.setOpenExternalLinks(True)
+        bl.addWidget(contact)
+
+        bl.addWidget(hline())
+
+        placeholder = label(
+            "Na razie żadna opcja eksperymentalna nie jest jeszcze dostępna "
+            "— pojawi się tutaj wraz z kolejną aktualizacją.",
+            "ExperimentalPlaceholder", wrap=True)
+        placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        bl.addWidget(placeholder)
+
+        bl.addWidget(hline())
+
+        disable = QPushButton(
+            "Wyłącz opcje eksperymentalne i zamknij tą zakładkę.", box)
+        disable.setObjectName("ExperimentalDisable")
+        disable.setCursor(Qt.CursorShape.PointingHandCursor)
+        disable.clicked.connect(self._disable_experimental)
+        bl.addWidget(disable)
+
+        return box
+
+    def set_experimental_visible(self, visible: bool) -> None:
+        card_ = getattr(self, "experimental_card", None)
+        if card_ is None or card_.isVisible() == visible:
+            return
+        if visible:
+            anim.reveal(card_, ms=anim.BASE)
+        else:
+            anim.slide_up(card_, ms=anim.FAST)
+
+    def _disable_experimental(self) -> None:
+        dlg = ConfirmDialog(
+            self.window(),
+            title="Wyłącz opcje eksperymentalne",
+            message=f"{I.WARN}  Na pewno chcesz wyłączyć opcje eksperymentalne?",
+            hint='Kartę odblokujesz z powrotem klikając 5 razy "Wersja" w '
+                 "zakładce Info.",
+            confirm_text="Wyłącz",
+            cancel_text="Anuluj",
+        )
+        if dlg.exec() != ConfirmDialog.DialogCode.Accepted:
+            return
+        self._config.experimental_features = False
+        self._config.save()
+        self.set_experimental_visible(False)
+        self.experimental_disabled.emit()
 
     # ── pliki z danymi ──
 
@@ -497,6 +585,8 @@ class SettingsPage(QWidget):
         bl.addWidget(save)
         lay.addWidget(bar)
 
+        self.form.experimental_disabled.connect(self._on_experimental_disabled)
+
     def _save(self) -> None:
         errors = self.form.validate()
         if errors:
@@ -507,11 +597,17 @@ class SettingsPage(QWidget):
             return
         self.form.apply_to_config(self._config)
         self._config.save()
-        self.status.setText(f"{I.OK}  Zmiany zapisane pomyślnie!")
+        self._show_status_ok("Zmiany zapisane pomyślnie!")
+        Toast.show_at(self.window(), f"{I.OK}  Zapisano ustawienia")
+
+    def _on_experimental_disabled(self) -> None:
+        Toast.show_at(self.window(), f"{I.OK}  Wyłączono opcje eksperymentalne")
+
+    def _show_status_ok(self, text: str) -> None:
+        self.status.setText(f"{I.OK}  {text}")
         self.status.setObjectName("Ok")
         restyle(self.status)
         anim.fade_in(self.status, ms=anim.BASE)
-        Toast.show_at(self.window(), f"{I.OK}  Zapisano ustawienia")
         QTimer.singleShot(3200, lambda: anim.fade_out(
             self.status, ms=anim.BASE, hide=False,
             on_done=lambda: self.status.setText("")))

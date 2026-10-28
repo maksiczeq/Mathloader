@@ -153,7 +153,9 @@ class MainWindow(QWidget):
 
         self.history_page = HistoryPage(self._config)
         self.settings_page = SettingsPage(self._config)
-        self.info_page = InfoPage()
+        self.info_page = InfoPage(self._config)
+        self.info_page.experimental_changed.connect(
+            self.settings_page.form.set_experimental_visible)
 
         self.stack.addWidget(self.download_page)
         self.stack.addWidget(self.history_page)

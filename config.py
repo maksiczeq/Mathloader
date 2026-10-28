@@ -35,6 +35,9 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "theme": "dark",
     # Historia: czy chować lekcje z wygasłym linkiem (domyślnie widoczne).
     "hide_expired": False,
+    # Easter egg w zakładce Info (5× klik w numer wersji) odblokowuje tę
+    # kategorię ustawień — raz włączone, zostaje aż do ręcznego wyłączenia.
+    "experimental_features": False,
 }
 
 # Dostępne placeholdery z opisami
@@ -199,6 +202,16 @@ class AppConfig:
     @skip_version.setter
     def skip_version(self, value: str) -> None:
         self._data["skip_version"] = str(value)
+
+    # ── Opcje eksperymentalne ──
+
+    @property
+    def experimental_features(self) -> bool:
+        return bool(self._data.get("experimental_features", False))
+
+    @experimental_features.setter
+    def experimental_features(self, value: bool) -> None:
+        self._data["experimental_features"] = bool(value)
 
     # ── Formatowanie nazw ──
 

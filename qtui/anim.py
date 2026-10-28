@@ -233,6 +233,101 @@ def glow(widget: QWidget, base_color: str, *, bright: float = 0.42,
     group.start(QAbstractAnimation.DeletionPolicy.KeepWhenStopped)
 
 
+def _border_fill_style(widget: QWidget, color: QColor, alpha: float, *,
+                       radius: int, padding: str, fill_alpha: float) -> str:
+    """Jeden wiersz QSS: obwódka w pełnym `alpha`, tło w `alpha * fill_alpha`.
+
+    Obwódka jest zawsze równa na wszystkich bokach — Qt nie zaokrągla
+    poprawnie róg bez swojej krawędzi (asymetryczna szerokość wychodzi
+    ucięta, płaska zamiast zaokrąglona).
+    """
+    def rgba(a: float) -> str:
+        return f"rgba({color.red()}, {color.green()}, {color.blue()}, {a:.3f})"
+    return (f"#{widget.objectName()} {{ border: 2px solid {rgba(alpha)};"
+            f" border-radius: {radius}px; padding: {padding};"
+            f" background: {rgba(alpha * fill_alpha)}; }}")
+
+
+def border_pulse(widget: QWidget, color: str, *, ms: int = 500,
+                 radius: int = 6, padding: str = "2px 8px",
+                 fill_alpha: float = 0.16) -> None:
+    """Jedno płynne „zapalenie i zgaśnięcie" obwódki + tła (0 → pełnia → 0).
+
+    Używane przy każdym kliku, który jeszcze nie odblokowuje — sam się
+    sprząta na końcu, obwódka wraca do tego, co rysuje arkusz QSS.
+    """
+    target = QColor(color)
+
+    def _apply(alpha: float) -> None:
+        widget.setStyleSheet(_border_fill_style(
+            widget, target, alpha, radius=radius, padding=padding,
+            fill_alpha=fill_alpha))
+
+    up = QVariantAnimation(widget)
+    up.setDuration(ms // 2)
+    up.setStartValue(0.0)
+    up.setEndValue(1.0)
+    up.setEasingCurve(EASE_OUT)
+    up.valueChanged.connect(_apply)
+
+    down = QVariantAnimation(widget)
+    down.setDuration(ms - ms // 2)
+    down.setStartValue(1.0)
+    down.setEndValue(0.0)
+    down.setEasingCurve(EASE_IN_OUT)
+    down.valueChanged.connect(_apply)
+
+    group = QSequentialAnimationGroup(widget)
+    group.addAnimation(up)
+    group.addAnimation(down)
+    group.finished.connect(lambda: widget.setStyleSheet(""))
+    _keep(widget, group, "_border_anim")
+    group.start(QAbstractAnimation.DeletionPolicy.KeepWhenStopped)
+
+
+def border_glow_on(widget: QWidget, color: str, *, ms: int = 260,
+                   radius: int = 6, padding: str = "2px 8px",
+                   fill_alpha: float = 0.16,
+                   on_done: Optional[Callable[[], None]] = None) -> None:
+    """Zapala obwódkę + tło i zostawia je zapalone — nie gaśnie samo.
+
+    Do zgaszenia służy `border_glow_off`. Para tych dwóch funkcji trzyma stan
+    „zapalony" przez dowolnie długi czas (np. na okres odmierzany timerem),
+    w odróżnieniu od `border_pulse`, który sam się wygasza natychmiast.
+    """
+    target = QColor(color)
+    a = QVariantAnimation(widget)
+    a.setDuration(ms)
+    a.setStartValue(0.0)
+    a.setEndValue(1.0)
+    a.setEasingCurve(EASE_OUT)
+    a.valueChanged.connect(lambda v: widget.setStyleSheet(
+        _border_fill_style(widget, target, v, radius=radius, padding=padding,
+                           fill_alpha=fill_alpha)))
+    if on_done:
+        a.finished.connect(on_done)
+    _keep(widget, a, "_border_anim")
+    a.start(QAbstractAnimation.DeletionPolicy.KeepWhenStopped)
+
+
+def border_glow_off(widget: QWidget, color: str, *, ms: int = 300,
+                    radius: int = 6, padding: str = "2px 8px",
+                    fill_alpha: float = 0.16) -> None:
+    """Gasi obwódkę + tło zapalone przez `border_glow_on` (pełnia → 0)."""
+    target = QColor(color)
+    a = QVariantAnimation(widget)
+    a.setDuration(ms)
+    a.setStartValue(1.0)
+    a.setEndValue(0.0)
+    a.setEasingCurve(EASE_IN_OUT)
+    a.valueChanged.connect(lambda v: widget.setStyleSheet(
+        _border_fill_style(widget, target, v, radius=radius, padding=padding,
+                           fill_alpha=fill_alpha)))
+    a.finished.connect(lambda: widget.setStyleSheet(""))
+    _keep(widget, a, "_border_anim")
+    a.start(QAbstractAnimation.DeletionPolicy.KeepWhenStopped)
+
+
 def flash_border(widget: QWidget, color: str, *, ms: int = 900, pulses: int = 3) -> None:
     """Miga obramowaniem (np. błędne pole ścieżki)."""
     group = QSequentialAnimationGroup(widget)

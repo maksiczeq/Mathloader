@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Callable, Optional
 
-from PySide6.QtCore import QSize, Qt, QTimer
+from PySide6.QtCore import QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QButtonGroup, QDialog, QFrame, QHBoxLayout, QLabel, QLineEdit,
@@ -132,6 +132,17 @@ def restyle(w: QWidget) -> None:
     w.style().polish(w)
 
 
+class ClickableFrame(QFrame):
+    """QFrame reagujący na kliknięcie — aktywny obszar bez wyglądu przycisku."""
+
+    clicked = Signal()
+
+    def mousePressEvent(self, event) -> None:          # noqa: N802
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+        super().mousePressEvent(event)
+
+
 class TabBar(QWidget):
     """Segmentowany pasek zakładek (własny — spójny z motywem)."""
 
@@ -228,7 +239,7 @@ class ConfirmDialog(BaseDialog):
 
     def __init__(self, parent: Optional[QWidget], *, title: str, message: str,
                  hint: str = "", confirm_text: str = "Usuń",
-                 danger: bool = True):
+                 cancel_text: str = "Nie", danger: bool = True):
         super().__init__(parent, title)
         lay = vbox(self, m=PAD_XL, s=PAD_MD)
 
@@ -251,7 +262,7 @@ class ConfirmDialog(BaseDialog):
         ok.setCursor(Qt.CursorShape.PointingHandCursor)
         ok.clicked.connect(self.accept)
 
-        no = QPushButton("Nie", row)
+        no = QPushButton(cancel_text, row)
         no.setObjectName("CardAction")
         no.setMinimumHeight(38)
         no.setCursor(Qt.CursorShape.PointingHandCursor)
